@@ -4,7 +4,7 @@
     "description": "CLI tool for scaffolding modern Mendix pluggable widgets",
     "type": "module",
     "bin": {
-        "create-mendix-widget": "./dist/index.js"
+        "create-mendix-widget": "dist/index.js"
     },
     "main": "./dist/index.js",
     "scripts": {
