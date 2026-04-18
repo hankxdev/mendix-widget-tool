@@ -1,12 +1,12 @@
-# create-mendix-widget - Implementation Summary
+# mx-widget-cli - Implementation Summary
 
 ## Overview
 
-Successfully built **`create-mendix-widget`** - a modern CLI tool for scaffolding Mendix pluggable widgets with Vite, Rollup, TypeScript, SASS, and Vitest.
+Successfully built **`mx-widget-cli`** - a modern CLI tool for scaffolding Mendix pluggable widgets with Vite, Rollup, TypeScript, SASS, and Vitest.
 
 ## What Was Built
 
-### 1. CLI Tool (`create-mendix-widget/`)
+### 1. CLI Tool (`mx-widget-cli/`)
 
 **Interactive Scaffolder**
 - Interactive prompts for widget name, description, author, package path, entity context, and project path
@@ -17,7 +17,7 @@ Successfully built **`create-mendix-widget`** - a modern CLI tool for scaffoldin
 
 **Project Structure**
 ```
-create-mendix-widget/
+mx-widget-cli/
 ├── src/
 │   ├── index.ts                      # CLI entry point with prompts
 │   ├── scaffold.ts                   # Template rendering engine
@@ -237,7 +237,7 @@ Output is byte-for-byte identical to `@mendix/pluggable-widgets-tools` for the s
 
 ## Key Improvements Over Official Tool
 
-| Aspect | Official Tool | create-mendix-widget |
+| Aspect | Official Tool | mx-widget-cli |
 |--------|--------------|---------------------|
 | **Configuration Transparency** | Opaque npm package | Fully editable per-project configs |
 | **Dev Experience** | Rollup watch only | Vite HMR + Rollup watch |
@@ -255,12 +255,12 @@ Output is byte-for-byte identical to `@mendix/pluggable-widgets-tools` for the s
 ### Interactive Mode
 ```bash
 cd /Users/hankmendix/Mendix/mxplatform/CustomWidgets
-node create-mendix-widget/dist/index.js
+node mx-widget-cli/dist/index.js
 ```
 
 ### Non-Interactive Mode
 ```bash
-node create-mendix-widget/dist/index.js MyWidget \
+node mx-widget-cli/dist/index.js MyWidget \
   --description "My custom widget" \
   --author "Hank" \
   --package mendix \

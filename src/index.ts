@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     const program = new Command();
 
     program
-        .name("create-mendix-widget")
+        .name("mx-widget-cli")
         .description("Scaffold a modern Mendix pluggable widget project")
         .version("1.0.0")
         .argument("[widget-name]", "Widget name in PascalCase")

@@ -1,4 +1,4 @@
-# create-mendix-widget
+# mx-widget-cli
 
 Modern CLI scaffolder for Mendix pluggable widgets with Vite, Rollup, TypeScript, SASS, and Vitest.
 
@@ -16,13 +16,13 @@ Modern CLI scaffolder for Mendix pluggable widgets with Vite, Rollup, TypeScript
 ### Interactive Mode
 
 ```bash
-npm create mendix-widget
+npx mx-widget-cli
 ```
 
 ### Non-Interactive Mode
 
 ```bash
-npm create mendix-widget MyWidget \
+npx mx-widget-cli MyWidget \
   --description "My custom widget" \
   --author "Your Name" \
   --package mendix \
@@ -112,7 +112,7 @@ dist/
 
 ## Key Differences from Official Tool
 
-| Feature | Official Tool | create-mendix-widget |
+| Feature | Official Tool | mx-widget-cli |
 |---------|--------------|---------------------|
 | Build system | Rollup (centralized config) | Rollup (per-project config) |
 | Dev server | Rollup watch only | Vite HMR + Rollup watch |

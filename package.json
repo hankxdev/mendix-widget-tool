@@ -1,10 +1,10 @@
 {
-    "name": "create-mendix-widget",
+    "name": "mx-widget-cli",
     "version": "1.0.0",
     "description": "CLI tool for scaffolding modern Mendix pluggable widgets",
     "type": "module",
     "bin": {
-        "create-mendix-widget": "dist/index.js"
+        "mx-widget-cli": "dist/index.js"
     },
     "main": "./dist/index.js",
     "scripts": {
