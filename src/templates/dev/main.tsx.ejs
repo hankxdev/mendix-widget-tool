@@ -1,0 +1,13 @@
+import { createRoot } from "react-dom/client";
+import { <%= widgetName %> } from "../src/<%= widgetName %>";
+
+const mockProps = {
+    name: "<%= widgetName %>Preview",
+    class: "",
+    tabIndex: 0,
+    sampleText: "World"
+};
+
+createRoot(document.getElementById("root")!).render(
+    <<%= widgetName %> {...mockProps} />
+);

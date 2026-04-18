@@ -1,0 +1,354 @@
+import { capitalizeFirstLetter, commasAnd, extractProperties } from "./helpers.js";
+import type { ActionVariableTypes, Property, SystemProperty } from "./types.js";
+
+export function generateClientTypes(
+    widgetName: string,
+    properties: Property[],
+    systemProperties: SystemProperty[]
+): string[] {
+    function resolveProp(key: string): Property | undefined {
+        return properties.find(p => p.$.key === key);
+    }
+
+    const isLabeled = systemProperties.some(p => p.$.key === "Label");
+    const results: string[] = [];
+
+    results.push(
+        `export interface ${widgetName}ContainerProps {\n` +
+        `    name: string;\n` +
+        (!isLabeled
+            ? `    class: string;\n    style?: CSSProperties;\n`
+            : "") +
+        `    tabIndex?: number;\n` +
+        (isLabeled ? `    id: string;\n` : "") +
+        generateClientTypeBody(properties, results, resolveProp) +
+        "\n}"
+    );
+
+    return results;
+}
+
+function isEmbeddedOnChangeAction(propertyPath: string, properties: Property[]): boolean {
+    return properties.some(prop => {
+        if (prop.$.onChange === propertyPath) {
+            return true;
+        }
+        if (prop.$.type === "object" && prop.properties && prop.properties.length > 0) {
+            return prop.properties.some(p =>
+                isEmbeddedOnChangeAction(`../${propertyPath}`, extractProperties(p))
+            );
+        }
+        return false;
+    });
+}
+
+function generateClientTypeBody(
+    properties: Property[],
+    generatedTypes: string[],
+    resolveProp: (key: string) => Property | undefined
+): string {
+    return properties
+        .filter(prop => {
+            if (prop.$.type === "action" && isEmbeddedOnChangeAction(prop.$.key, properties)) {
+                return false;
+            }
+            if (prop.$.type === "datasource" && prop.$.isLinked) {
+                return false;
+            }
+            return true;
+        })
+        .map(prop =>
+            `    ${prop.$.key}${isOptionalProp(prop, resolveProp) ? "?" : ""}: ${toClientPropType(prop, generatedTypes, resolveProp)};`
+        )
+        .join("\n");
+}
+
+function isOptionalProp(
+    prop: Property,
+    resolveProp: (key: string) => Property | undefined
+): boolean {
+    switch (prop.$.type) {
+        case "string":
+        case "object":
+            return false;
+        case "action":
+            return true;
+        case "selection":
+            return (
+                (prop.selectionTypes
+                    ?.flatMap(t => t.selectionType.map(t => t.$.name)) ?? []).includes("None") ||
+                hasOptionalDataSource(prop, resolveProp)
+            );
+        default:
+            return prop.$.required === "false" || hasOptionalDataSource(prop, resolveProp);
+    }
+}
+
+export function hasOptionalDataSource(
+    prop: Property,
+    resolveProp: (key: string) => Property | undefined
+): boolean {
+    return !!prop.$.dataSource && resolveProp(prop.$.dataSource)?.$.required === "false";
+}
+
+function toActionVariablesOutputType(actionVariables?: ActionVariableTypes[]): string {
+    const types = actionVariables
+        ?.flatMap(av => av.actionVariable)
+        .map(avt => `${avt.$.key}: ${toOption(toAttributeClientType(avt.$.type))}`)
+        .join("; ");
+    return types ? `<{ ${types} }>` : "";
+}
+
+function toClientPropType(
+    prop: Property,
+    generatedTypes: string[],
+    resolveProp: (key: string) => Property | undefined
+): string {
+    switch (prop.$.type) {
+        case "boolean":
+            return "boolean";
+        case "string":
+            return "string";
+        case "action": {
+            const variableTypes = toActionVariablesOutputType(prop.actionVariables);
+            return (prop.$.dataSource ? "ListActionValue" : "ActionValue") + variableTypes;
+        }
+        case "textTemplate":
+            return prop.$.dataSource ? "ListExpressionValue<string>" : "DynamicValue<string>";
+        case "integer":
+            return "number";
+        case "decimal":
+            return "Big";
+        case "icon":
+            return "DynamicValue<WebIcon>";
+        case "image":
+            return prop.$.allowUpload === "true"
+                ? "EditableImageValue<WebImage>"
+                : "DynamicValue<WebImage>";
+        case "file":
+            return prop.$.allowUpload ? "EditableFileValue" : "DynamicValue<FileValue>";
+        case "datasource":
+            return "ListValue";
+        case "attribute": {
+            if (!prop.attributeTypes?.length) {
+                throw new Error("[XML] Attribute property requires attributeTypes element");
+            }
+            const types = prop.attributeTypes
+                .flatMap(ats => ats.attributeType)
+                .map(at => toAttributeClientType(at.$.name));
+            const unionType = toUniqueUnionType(types);
+            const linkedToDataSource = !!prop.$.dataSource;
+
+            if (prop.$.isMetaData === "true") {
+                if (!linkedToDataSource) {
+                    throw new Error(
+                        `[XML] Attribute property can only have isMetaData="true" when linked to a datasource`
+                    );
+                }
+                return `AttributeMetaData<${unionType}>`;
+            }
+
+            if (!prop.associationTypes?.length) {
+                return toAttributeOutputType("Reference", linkedToDataSource, unionType);
+            } else {
+                const reftypes = prop.associationTypes
+                    .flatMap(ats => ats.associationType)
+                    .map(at => toAttributeOutputType(at.$.name, linkedToDataSource, unionType));
+                return toUniqueUnionType(reftypes);
+            }
+        }
+        case "association": {
+            if (!prop.associationTypes?.length) {
+                throw new Error("[XML] Association property requires associationTypes element");
+            }
+            const linkedToDataSource = !!prop.$.dataSource;
+
+            if (prop.$.isMetaData === "true") {
+                if (!linkedToDataSource) {
+                    throw new Error(
+                        `[XML] Association property can only have isMetaData="true" when linked to a datasource`
+                    );
+                }
+                return "AssociationMetaData";
+            }
+
+            const types = prop.associationTypes
+                .flatMap(ats => ats.associationType)
+                .map(at => toAssociationOutputType(at.$.name, linkedToDataSource));
+            return toUniqueUnionType(types);
+        }
+        case "expression": {
+            if (!prop.returnType || prop.returnType.length === 0) {
+                throw new Error("[XML] Expression property requires returnType element");
+            }
+            const type = toExpressionClientType(prop.returnType[0], resolveProp);
+            return prop.$.dataSource ? `ListExpressionValue<${type}>` : `DynamicValue<${type}>`;
+        }
+        case "enumeration": {
+            const typeName = capitalizeFirstLetter(prop.$.key) + "Enum";
+            generatedTypes.push(generateEnum(typeName, prop));
+            return typeName;
+        }
+        case "object": {
+            if (!prop.properties?.length) {
+                throw new Error("[XML] Object property requires properties element");
+            }
+            const childType = capitalizeFirstLetter(prop.$.key) + "Type";
+            const childProperties = extractProperties(prop.properties[0]);
+            const resolveChildProp = (key: string) =>
+                key.startsWith("../")
+                    ? resolveProp(key.substring(3))
+                    : childProperties.find(p => p.$.key === key);
+            generatedTypes.push(
+                `export interface ${childType} {\n` +
+                generateClientTypeBody(childProperties, generatedTypes, resolveChildProp) +
+                "\n}"
+            );
+            return prop.$.isList === "true" ? `${childType}[]` : childType;
+        }
+        case "widgets":
+            return prop.$.dataSource ? "ListWidgetValue" : "ReactNode";
+        case "selection": {
+            if (!prop.selectionTypes?.length) {
+                throw new Error("[XML] Selection property requires selectionTypes element");
+            }
+            const selectionTypes = prop.selectionTypes
+                .flatMap(s => s.selectionType)
+                .map(s => s.$.name);
+            const clientTypes = selectionTypes
+                .filter(s => s !== "None")
+                .map(toSelectionClientType);
+            return toUniqueUnionType(clientTypes);
+        }
+        default:
+            return "any";
+    }
+}
+
+function generateEnum(typeName: string, prop: Property): string {
+    if (!prop.enumerationValues?.length || !prop.enumerationValues[0].enumerationValue?.length) {
+        throw new Error("[XML] Enumeration property requires enumerations element");
+    }
+    const members = prop.enumerationValues[0].enumerationValue.map(type => `"${type.$.key}"`);
+    return `export type ${typeName} = ${members.join(" | ")};`;
+}
+
+export function toAttributeClientType(xmlType: string): string {
+    switch (xmlType) {
+        case "Boolean":
+            return "boolean";
+        case "DateTime":
+            return "Date";
+        case "AutoNumber":
+        case "Decimal":
+        case "Integer":
+        case "Long":
+            return "Big";
+        case "HashString":
+        case "String":
+        case "Enum":
+            return "string";
+        default:
+            return "any";
+    }
+}
+
+function toExpressionClientType(
+    returnTypeProp: { $: { type?: string; assignableTo?: string } },
+    resolveProp: (key: string) => Property | undefined
+): string {
+    const { type, assignableTo } = returnTypeProp.$ ?? {};
+
+    if ((type && assignableTo) || (!type && !assignableTo)) {
+        throw new Error(
+            "[XML] Invalid return type for expression property: either type or assignableTo must be specified."
+        );
+    }
+
+    if (type) {
+        return toAttributeClientType(type);
+    }
+
+    const resolvedProperty = resolveProp(assignableTo!);
+    if (!resolvedProperty) {
+        throw new Error(
+            `[XML] Invalid return type for expression property: invalid property path '${assignableTo}' in assignableTo attribute.`
+        );
+    }
+    if (resolvedProperty.$.type !== "attribute") {
+        throw new Error(
+            `[XML] Invalid return type for expression property: assignableTo property '${assignableTo}' must be of type Attribute.`
+        );
+    }
+
+    const { attributeTypes } = resolvedProperty;
+    if (!attributeTypes?.[0]?.attributeType) {
+        throw new Error(
+            `[XML] Invalid return type for expression property: assignableTo property '${assignableTo}' must have attribute types.`
+        );
+    }
+
+    const allowedTypes = ["Boolean", "DateTime", "Enum", "Integer", "Long", "String", "Decimal"];
+    const types = attributeTypes
+        .map(ats => ats.attributeType)
+        .reduce((a, i) => a.concat(i), [])
+        .map(at => at.$.name);
+
+    const unsupportedTypes = types.filter(t => !allowedTypes.includes(t));
+    if (unsupportedTypes.length !== 0) {
+        throw new Error(
+            `[XML] Invalid return type for expression property: assignableTo property '${assignableTo}' has unsupported attribute type ${commasAnd(unsupportedTypes)}.`
+        );
+    }
+
+    return toUniqueUnionType(types.map(toAttributeClientType));
+}
+
+export function toAssociationOutputType(xmlType: string, linkedToDataSource: boolean): string {
+    switch (xmlType) {
+        case "Reference":
+            return linkedToDataSource ? "ListReferenceValue" : "ReferenceValue";
+        case "ReferenceSet":
+            return linkedToDataSource ? "ListReferenceSetValue" : "ReferenceSetValue";
+        default:
+            return "any";
+    }
+}
+
+export function toAttributeOutputType(
+    xmlType: string,
+    linkedToDataSource: boolean,
+    unionAttributeType: string
+): string {
+    switch (xmlType) {
+        case "Reference":
+            return linkedToDataSource
+                ? `ListAttributeValue<${unionAttributeType}>`
+                : `EditableValue<${unionAttributeType}>`;
+        case "ReferenceSet":
+            return linkedToDataSource
+                ? `ListAttributeListValue<${unionAttributeType}>`
+                : `EditableListValue<${unionAttributeType}>`;
+        default:
+            return "any";
+    }
+}
+
+function toSelectionClientType(xmlType: string): string {
+    switch (xmlType) {
+        case "Single":
+            return "SelectionSingleValue";
+        case "Multi":
+            return "SelectionMultiValue";
+        default:
+            return "any";
+    }
+}
+
+function toOption(type: string): string {
+    return `Option<${type}>`;
+}
+
+export function toUniqueUnionType(types: string[]): string {
+    return types.length ? Array.from(new Set(types)).join(" | ") : "any";
+}

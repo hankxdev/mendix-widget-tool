@@ -1,0 +1,15 @@
+import { render, screen } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { HelloWorldSample } from "../src/components/HelloWorldSample";
+
+describe("<%= widgetName %>", () => {
+    it("renders hello world with default text", () => {
+        render(<HelloWorldSample sampleText="World" />);
+        expect(screen.getByText("Hello World")).toBeInTheDocument();
+    });
+
+    it("renders hello world with custom text", () => {
+        render(<HelloWorldSample sampleText="Mendix" />);
+        expect(screen.getByText("Hello Mendix")).toBeInTheDocument();
+    });
+});

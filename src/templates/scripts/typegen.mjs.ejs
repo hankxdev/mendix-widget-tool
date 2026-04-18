@@ -1,0 +1,272 @@
+#!/usr/bin/env node
+
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { parseStringPromise } from "xml2js";
+
+const MX_EXPORTS = [
+    "ActionValue", "AssociationMetaData", "AttributeMetaData", "DynamicValue",
+    "EditableValue", "EditableListValue", "EditableFileValue", "EditableImageValue",
+    "FileValue", "ListValue", "Option", "ListActionValue", "ListAttributeValue",
+    "ListAttributeListValue", "ListExpressionValue", "ListReferenceValue",
+    "ListReferenceSetValue", "ListWidgetValue", "ReferenceValue", "ReferenceSetValue",
+    "SelectionSingleValue", "SelectionMultiValue", "WebIcon", "WebImage"
+];
+
+function extractProperties(props) {
+    if (props.propertyGroup) {
+        return props.propertyGroup.flatMap(pg => extractProperties(pg));
+    }
+    return props.property ?? [];
+}
+
+function extractSystemProperties(props) {
+    if (props.propertyGroup) {
+        return props.propertyGroup.flatMap(pg => {
+            if (pg.propertyGroup) return pg.propertyGroup.flatMap(p => extractSystemProperties(p));
+            return pg.systemProperty ?? [];
+        });
+    }
+    return props.systemProperty ?? [];
+}
+
+function cap(text) {
+    return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function commasAnd(arr) {
+    return arr.slice(0, -1).join(", ") + (arr.length > 1 ? " and " : "") + arr[arr.length - 1];
+}
+
+function toUniqueUnionType(types) {
+    return types.length ? Array.from(new Set(types)).join(" | ") : "any";
+}
+
+function toAttributeClientType(xmlType) {
+    switch (xmlType) {
+        case "Boolean": return "boolean";
+        case "DateTime": return "Date";
+        case "AutoNumber": case "Decimal": case "Integer": case "Long": return "Big";
+        case "HashString": case "String": case "Enum": return "string";
+        default: return "any";
+    }
+}
+
+function toAttributeOutputType(xmlType, linked, unionType) {
+    switch (xmlType) {
+        case "Reference": return linked ? `ListAttributeValue<${unionType}>` : `EditableValue<${unionType}>`;
+        case "ReferenceSet": return linked ? `ListAttributeListValue<${unionType}>` : `EditableListValue<${unionType}>`;
+        default: return "any";
+    }
+}
+
+function toAssociationOutputType(xmlType, linked) {
+    switch (xmlType) {
+        case "Reference": return linked ? "ListReferenceValue" : "ReferenceValue";
+        case "ReferenceSet": return linked ? "ListReferenceSetValue" : "ReferenceSetValue";
+        default: return "any";
+    }
+}
+
+function toSelectionClientType(xmlType) {
+    switch (xmlType) {
+        case "Single": return "SelectionSingleValue";
+        case "Multi": return "SelectionMultiValue";
+        default: return "any";
+    }
+}
+
+function hasOptionalDS(prop, resolve) {
+    return prop.$.dataSource && resolve(prop.$.dataSource)?.$.required === "false";
+}
+
+function isEmbeddedOnChange(path, properties) {
+    return properties.some(p => {
+        if (p.$.onChange === path) return true;
+        if (p.$.type === "object" && p.properties?.length) {
+            return p.properties.some(pp => isEmbeddedOnChange(`../${path}`, extractProperties(pp)));
+        }
+        return false;
+    });
+}
+
+function isOptional(prop, resolve) {
+    switch (prop.$.type) {
+        case "string": case "object": return false;
+        case "action": return true;
+        case "selection":
+            return (prop.selectionTypes?.flatMap(t => t.selectionType.map(t => t.$.name)) ?? []).includes("None") || hasOptionalDS(prop, resolve);
+        default:
+            return prop.$.required === "false" || hasOptionalDS(prop, resolve);
+    }
+}
+
+function toClientType(prop, gen, resolve) {
+    switch (prop.$.type) {
+        case "boolean": return "boolean";
+        case "string": return "string";
+        case "action": {
+            const vars = prop.actionVariables?.flatMap(av => av.actionVariable).map(a => `${a.$.key}: Option<${toAttributeClientType(a.$.type)}>`).join("; ");
+            return (prop.$.dataSource ? "ListActionValue" : "ActionValue") + (vars ? `<{ ${vars} }>` : "");
+        }
+        case "textTemplate": return prop.$.dataSource ? "ListExpressionValue<string>" : "DynamicValue<string>";
+        case "integer": return "number";
+        case "decimal": return "Big";
+        case "icon": return "DynamicValue<WebIcon>";
+        case "image": return prop.$.allowUpload === "true" ? "EditableImageValue<WebImage>" : "DynamicValue<WebImage>";
+        case "file": return prop.$.allowUpload ? "EditableFileValue" : "DynamicValue<FileValue>";
+        case "datasource": return "ListValue";
+        case "attribute": {
+            if (!prop.attributeTypes?.length) throw new Error("[XML] Attribute requires attributeTypes");
+            const types = prop.attributeTypes.flatMap(a => a.attributeType).map(a => toAttributeClientType(a.$.name));
+            const union = toUniqueUnionType(types);
+            const linked = !!prop.$.dataSource;
+            if (prop.$.isMetaData === "true") return `AttributeMetaData<${union}>`;
+            if (!prop.associationTypes?.length) return toAttributeOutputType("Reference", linked, union);
+            return toUniqueUnionType(prop.associationTypes.flatMap(a => a.associationType).map(a => toAttributeOutputType(a.$.name, linked, union)));
+        }
+        case "association": {
+            if (!prop.associationTypes?.length) throw new Error("[XML] Association requires associationTypes");
+            const linked = !!prop.$.dataSource;
+            if (prop.$.isMetaData === "true") return "AssociationMetaData";
+            return toUniqueUnionType(prop.associationTypes.flatMap(a => a.associationType).map(a => toAssociationOutputType(a.$.name, linked)));
+        }
+        case "expression": {
+            if (!prop.returnType?.length) throw new Error("[XML] Expression requires returnType");
+            const rt = prop.returnType[0].$;
+            let type;
+            if (rt.type) { type = toAttributeClientType(rt.type); }
+            else {
+                const resolved = resolve(rt.assignableTo);
+                const types = resolved.attributeTypes.flatMap(a => a.attributeType).map(a => toAttributeClientType(a.$.name));
+                type = toUniqueUnionType(types);
+            }
+            return prop.$.dataSource ? `ListExpressionValue<${type}>` : `DynamicValue<${type}>`;
+        }
+        case "enumeration": {
+            const name = cap(prop.$.key) + "Enum";
+            const members = prop.enumerationValues[0].enumerationValue.map(v => `"${v.$.key}"`);
+            gen.push(`export type ${name} = ${members.join(" | ")};`);
+            return name;
+        }
+        case "object": {
+            const childType = cap(prop.$.key) + "Type";
+            const childProps = extractProperties(prop.properties[0]);
+            const childResolve = k => k.startsWith("../") ? resolve(k.substring(3)) : childProps.find(p => p.$.key === k);
+            gen.push(`export interface ${childType} {\n${genClientBody(childProps, gen, childResolve)}\n}`);
+            return prop.$.isList === "true" ? `${childType}[]` : childType;
+        }
+        case "widgets": return prop.$.dataSource ? "ListWidgetValue" : "ReactNode";
+        case "selection": {
+            const types = prop.selectionTypes.flatMap(s => s.selectionType).map(s => s.$.name).filter(s => s !== "None").map(toSelectionClientType);
+            return toUniqueUnionType(types);
+        }
+        default: return "any";
+    }
+}
+
+function genClientBody(props, gen, resolve) {
+    return props
+        .filter(p => !(p.$.type === "action" && isEmbeddedOnChange(p.$.key, props)) && !(p.$.type === "datasource" && p.$.isLinked))
+        .map(p => `    ${p.$.key}${isOptional(p, resolve) ? "?" : ""}: ${toClientType(p, gen, resolve)};`)
+        .join("\n");
+}
+
+function toPreviewType(prop, gen, resolve) {
+    switch (prop.$.type) {
+        case "boolean": return "boolean";
+        case "string": return "string";
+        case "action": return "{} | null";
+        case "textTemplate": return "string";
+        case "integer": case "decimal": return "number | null";
+        case "icon": return '{ type: "glyph"; iconClass: string; } | { type: "image"; imageUrl: string; iconUrl: string; } | { type: "icon"; iconClass: string; } | undefined';
+        case "image": return '{ type: "static"; imageUrl: string; } | { type: "dynamic"; entity: string; } | null';
+        case "file": return "string";
+        case "datasource": return "{} | { caption: string } | { type: string } | null";
+        case "attribute": case "association": case "expression": return "string";
+        case "enumeration": return cap(prop.$.key) + "Enum";
+        case "object": {
+            const childType = cap(prop.$.key) + "PreviewType";
+            const childProps = extractProperties(prop.properties[0]);
+            const childResolve = k => k.startsWith("../") ? resolve(k.substring(3)) : childProps.find(p => p.$.key === k);
+            gen.push(`export interface ${childType} {\n${genPreviewBody(childProps, gen, childResolve)}\n}`);
+            return prop.$.isList === "true" ? `${childType}[]` : childType;
+        }
+        case "widgets": return '{ widgetCount: number; renderer: ComponentType<{ children: ReactNode; caption?: string }> }';
+        case "selection": {
+            const types = prop.selectionTypes.flatMap(s => s.selectionType).map(s => s.$.name);
+            if (hasOptionalDS(prop, resolve)) types.push("None");
+            return toUniqueUnionType(types.map(s => `"${s}"`));
+        }
+        default: return "any";
+    }
+}
+
+function genPreviewBody(props, gen, resolve) {
+    return props
+        .filter(p => !(p.$.type === "datasource" && p.$.isLinked))
+        .map(p => `    ${p.$.key}: ${toPreviewType(p, gen, resolve)};`)
+        .join("\n");
+}
+
+function generateForWidget(widgetXml, widgetName) {
+    if (!widgetXml?.widget?.properties) throw new Error("[XML] No <properties> element");
+    if (widgetXml.widget.$.pluginWidget !== "true") throw new Error("[XML] pluginWidget=true not found");
+
+    const propElements = widgetXml.widget.properties[0] ?? [];
+    const properties = extractProperties(propElements).filter(p => p?.$?.key);
+    const systemProperties = extractSystemProperties(propElements).filter(p => p?.$?.key);
+    const resolve = key => properties.find(p => p.$.key === key);
+    const isLabeled = systemProperties.some(p => p.$.key === "Label");
+
+    const clientTypes = [];
+    clientTypes.push(
+        `export interface ${widgetName}ContainerProps {\n    name: string;\n` +
+        (!isLabeled ? `    class: string;\n    style?: CSSProperties;\n` : "") +
+        `    tabIndex?: number;\n` + (isLabeled ? `    id: string;\n` : "") +
+        genClientBody(properties, clientTypes, resolve) + "\n}"
+    );
+
+    const previewTypes = [];
+    previewTypes.push(
+        `export interface ${widgetName}PreviewProps {` +
+        (!isLabeled ? `\n    /**\n     * @deprecated Deprecated since version 9.18.0. Please use class property instead.\n     */\n    className: string;\n    class: string;\n    style: string;\n    styleObject?: CSSProperties;` : "") +
+        `\n    readOnly: boolean;\n    renderMode: "design" | "xray" | "structure";\n    translate: (text: string) => string;\n` +
+        genPreviewBody(properties, previewTypes, resolve) + "\n}"
+    );
+
+    const code = clientTypes.slice(0, -1).concat(previewTypes.slice(0, -1)).concat([clientTypes.at(-1), previewTypes.at(-1)]).join("\n\n");
+    const imports = [
+        genImport("react", code, ["ComponentType", "CSSProperties", "ReactNode"]),
+        genImport("mendix", code, MX_EXPORTS),
+        genImport("big.js", code, ["Big"])
+    ].filter(Boolean).join("\n");
+
+    return `/**\n * This file was generated from ${widgetName}.xml\n * WARNING: All changes made to this file will be overwritten\n * @author Mendix Widgets Framework Team\n */\n${imports.length ? imports + "\n\n" : ""}${code}\n`;
+}
+
+function genImport(from, code, names) {
+    const used = names.filter(n => new RegExp(`\\W${n}\\W`).test(code));
+    return used.length ? `import { ${used.join(", ")} } from "${from}";` : "";
+}
+
+async function main() {
+    const srcDir = "src";
+    const typingsDir = "typings";
+    const packageXml = await parseStringPromise(readFileSync(join(srcDir, "package.xml"), "utf-8"));
+    const widgetFiles = packageXml.package.clientModule[0].widgetFiles[0].widgetFile;
+
+    if (!existsSync(typingsDir)) mkdirSync(typingsDir, { recursive: true });
+
+    for (const wf of widgetFiles) {
+        const widgetName = wf.$.path.replace(/\.xml$/, "");
+        const widgetXml = await parseStringPromise(readFileSync(join(srcDir, wf.$.path), "utf-8"));
+        const output = generateForWidget(widgetXml, widgetName);
+        const outPath = join(typingsDir, `${widgetName}Props.d.ts`);
+        mkdirSync(dirname(outPath), { recursive: true });
+        writeFileSync(outPath, output, "utf-8");
+        console.log(`Generated ${outPath}`);
+    }
+}
+
+main().catch(err => { console.error(err); process.exit(1); });

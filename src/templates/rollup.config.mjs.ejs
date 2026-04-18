@@ -1,0 +1,213 @@
+import { existsSync, mkdirSync, cpSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import commonjs from "@rollup/plugin-commonjs";
+import image from "@rollup/plugin-image";
+import { nodeResolve } from "@rollup/plugin-node-resolve";
+import terser from "@rollup/plugin-terser";
+import typescript from "@rollup/plugin-typescript";
+import command from "rollup-plugin-command";
+import livereload from "rollup-plugin-livereload";
+import postcss from "rollup-plugin-postcss";
+import postcssImport from "postcss-import";
+import postcssUrl from "postcss-url";
+import { zip } from "zip-a-folder";
+
+const pkg = JSON.parse(readFileSync("./package.json", "utf-8"));
+const widgetName = pkg.widgetName;
+const widgetPackage = pkg.packagePath;
+const widgetVersion = pkg.version;
+const projectPath = [
+    process.env.MX_PROJECT_PATH,
+    pkg.config?.projectPath,
+    "tests/testProject"
+].filter(p => p && existsSync(p) && existsSync(join(p, "deployment")))[0];
+
+const outDir = "dist/tmp/widgets/";
+const outWidgetDir = join(widgetPackage.replace(/\./g, "/"), widgetName.toLowerCase());
+const outWidgetFile = join(outWidgetDir, widgetName);
+const absoluteOutAssetsDir = join(outDir, outWidgetDir, "assets");
+const outAssetsDir = join(outWidgetDir, "assets");
+const mpkDir = join("dist", widgetVersion);
+const mpkFile = join(mpkDir, `${widgetPackage}.${widgetName}.mpk`);
+
+const webExternal = [/^react($|\/)/, /^react-dom($|\/)/, /^mendix($|\/)/, /^big\.js$/];
+
+const cssUrlTransform = asset =>
+    asset.url.startsWith("assets/") ? `${outWidgetDir.replace(/\\/g, "/")}/${asset.url}` : asset.url;
+
+function copyXmlAndIcons() {
+    const srcFiles = readdirSync("src");
+    for (const file of srcFiles) {
+        if (file.endsWith(".xml")) {
+            cpSync(join("src", file), join(outDir, file));
+        }
+        if (file.match(/\.(tile|icon)(\.dark)?\.png$/)) {
+            cpSync(join("src", file), join(outDir, file));
+        }
+    }
+}
+
+async function createMpk(production) {
+    mkdirSync(mpkDir, { recursive: true });
+    await zip(outDir, mpkFile);
+    if (!production && projectPath && existsSync(projectPath)) {
+        const widgetsPath = join(projectPath, "widgets");
+        const deploymentPath = join(projectPath, "deployment/web/widgets");
+        mkdirSync(widgetsPath, { recursive: true });
+        mkdirSync(deploymentPath, { recursive: true });
+        cpSync(outDir, deploymentPath, { recursive: true });
+        cpSync(mpkFile, join(widgetsPath, `${widgetPackage}.${widgetName}.mpk`));
+    }
+}
+
+function postCssPlugin(outputFormat, production) {
+    return postcss({
+        extensions: [".css", ".sass", ".scss"],
+        extract: outputFormat === "amd",
+        inject: outputFormat !== "amd",
+        minimize: production,
+        plugins: [
+            postcssImport(),
+            postcssUrl({ url: "copy", assetsPath: "assets" }),
+            postcssUrl({ url: cssUrlTransform })
+        ],
+        sourceMap: !production ? "inline" : false,
+        use: ["sass"],
+        to: join(outDir, `${outWidgetFile}.css`)
+    });
+}
+
+export default args => {
+    const production = Boolean(args.configProduction);
+    const result = [];
+
+    ["amd", "es"].forEach(format => {
+        result.push({
+            input: `src/${widgetName}.tsx`,
+            output: {
+                format,
+                file: join(outDir, `${outWidgetFile}.${format === "es" ? "mjs" : "js"}`),
+                sourcemap: !production ? "inline" : false
+            },
+            external: webExternal,
+            plugins: [
+                ...(format === "amd"
+                    ? [
+                        {
+                            name: "clean-and-copy",
+                            buildStart() {
+                                copyXmlAndIcons();
+                            }
+                        }
+                    ]
+                    : []),
+                nodeResolve({ preferBuiltins: false, mainFields: ["module", "browser", "main"] }),
+                typescript({
+                    noEmitOnError: !args.watch,
+                    sourceMap: !production,
+                    inlineSources: !production,
+                    target: "ES2022",
+                    exclude: ["**/__tests__/**/*"]
+                }),
+                commonjs({
+                    extensions: [".js", ".jsx", ".tsx", ".ts"],
+                    transformMixedEsModules: true,
+                    requireReturnsDefault: "auto"
+                }),
+                image(),
+                postCssPlugin(format, production),
+                production ? terser() : null,
+                args.watch && !production && projectPath && format === "amd"
+                    ? livereload()
+                    : null,
+                command([async () => createMpk(production)])
+            ].filter(Boolean),
+            onwarn: (warning, warn) => {
+                if (warning.code === "MODULE_LEVEL_DIRECTIVE" || warning.code === "SOURCEMAP_ERROR") return;
+                const safeWarnings = ["CIRCULAR_DEPENDENCY", "THIS_IS_UNDEFINED", "UNUSED_EXTERNAL_IMPORT"];
+                if (args.watch || safeWarnings.includes(warning.code)) return warn(warning);
+                throw new Error(warning.message);
+            }
+        });
+    });
+
+    const previewEntry = `src/${widgetName}.editorPreview.tsx`;
+    if (existsSync(previewEntry)) {
+        result.push({
+            input: previewEntry,
+            output: {
+                format: "cjs",
+                file: join(outDir, `${widgetName}.editorPreview.js`),
+                sourcemap: !production ? "inline" : false
+            },
+            external: webExternal,
+            plugins: [
+                nodeResolve({ preferBuiltins: false, mainFields: ["module", "browser", "main"] }),
+                typescript({
+                    noEmitOnError: !args.watch,
+                    sourceMap: !production,
+                    inlineSources: !production,
+                    target: "ES2022",
+                    exclude: ["**/__tests__/**/*"]
+                }),
+                commonjs({
+                    extensions: [".js", ".jsx", ".tsx", ".ts"],
+                    transformMixedEsModules: true,
+                    requireReturnsDefault: "auto"
+                }),
+                image(),
+                postcss({
+                    extensions: [".css", ".sass", ".scss"],
+                    extract: false,
+                    inject: true,
+                    minimize: production,
+                    plugins: [postcssImport(), postcssUrl({ url: "inline" })],
+                    sourceMap: !production ? "inline" : false,
+                    use: ["sass"]
+                }),
+                production ? terser() : null,
+                command([async () => createMpk(production)])
+            ].filter(Boolean),
+            onwarn: (warning, warn) => {
+                if (warning.code === "MODULE_LEVEL_DIRECTIVE" || warning.code === "SOURCEMAP_ERROR") return;
+                warn(warning);
+            }
+        });
+    }
+
+    const editorConfigEntry = `src/${widgetName}.editorConfig.ts`;
+    if (existsSync(editorConfigEntry)) {
+        result.push({
+            input: editorConfigEntry,
+            output: {
+                format: "cjs",
+                file: join(outDir, `${widgetName}.editorConfig.js`),
+                sourcemap: false
+            },
+            external: webExternal,
+            plugins: [
+                nodeResolve({ preferBuiltins: false, mainFields: ["module", "browser", "main"] }),
+                typescript({
+                    noEmitOnError: !args.watch,
+                    sourceMap: false,
+                    target: "ES2022",
+                    exclude: ["**/__tests__/**/*"]
+                }),
+                commonjs({
+                    extensions: [".js", ".jsx", ".tsx", ".ts"],
+                    transformMixedEsModules: true,
+                    requireReturnsDefault: "auto"
+                }),
+                image(),
+                production ? terser() : null,
+                command([async () => createMpk(production)])
+            ].filter(Boolean),
+            onwarn: (warning, warn) => {
+                if (warning.code === "MODULE_LEVEL_DIRECTIVE" || warning.code === "SOURCEMAP_ERROR") return;
+                warn(warning);
+            }
+        });
+    }
+
+    return result;
+};

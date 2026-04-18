@@ -1,0 +1,12 @@
+import { ReactElement } from "react";
+import { HelloWorldSample } from "./components/HelloWorldSample";
+import { <%= widgetName %>PreviewProps } from "../typings/<%= widgetName %>Props";
+import css from "./ui/<%= widgetName %>.scss";
+
+export function preview({ sampleText }: <%= widgetName %>PreviewProps): ReactElement {
+    return <HelloWorldSample sampleText={sampleText} />;
+}
+
+export function getPreviewCss(): string {
+    return css;
+}

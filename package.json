@@ -1,0 +1,59 @@
+{
+    "name": "create-mendix-widget",
+    "version": "1.0.0",
+    "description": "CLI tool for scaffolding modern Mendix pluggable widgets",
+    "type": "module",
+    "bin": {
+        "create-mendix-widget": "./dist/index.js"
+    },
+    "main": "./dist/index.js",
+    "scripts": {
+        "build": "tsup",
+        "dev": "tsup --watch",
+        "prepublishOnly": "npm run build"
+    },
+    "keywords": [
+        "mendix",
+        "widget",
+        "pluggable-widget",
+        "scaffolder",
+        "cli",
+        "generator",
+        "vite",
+        "rollup",
+        "typescript",
+        "sass"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/hankxdev/mendix-widget-tool.git"
+    },
+    "homepage": "https://github.com/hankxdev/mendix-widget-tool#readme",
+    "bugs": {
+        "url": "https://github.com/hankxdev/mendix-widget-tool/issues"
+    },
+    "author": "Hank",
+    "dependencies": {
+        "chalk": "^5.4.1",
+        "commander": "^13.1.0",
+        "@inquirer/prompts": "^7.5.0",
+        "ejs": "^3.1.10",
+        "ora": "^8.2.0",
+        "xml2js": "^0.6.2"
+    },
+    "devDependencies": {
+        "@types/ejs": "^3.1.5",
+        "@types/xml2js": "^0.4.14",
+        "tsup": "^8.4.0",
+        "typescript": "^5.7.3"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "license": "Apache-2.0",
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ]
+}

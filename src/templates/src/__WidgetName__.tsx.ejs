@@ -1,0 +1,8 @@
+import { ReactElement } from "react";
+import { HelloWorldSample } from "./components/HelloWorldSample";
+import { <%= widgetName %>ContainerProps } from "../typings/<%= widgetName %>Props";
+import "./ui/<%= widgetName %>.scss";
+
+export function <%= widgetName %>({ sampleText }: <%= widgetName %>ContainerProps): ReactElement {
+    return <HelloWorldSample sampleText={sampleText ? sampleText : "World"} />;
+}

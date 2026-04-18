@@ -1,0 +1,19 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+    plugins: [react()],
+    root: "dev",
+    resolve: {
+        alias: {
+            mendix: new URL("./dev/__mocks__/mendix.ts", import.meta.url).pathname
+        }
+    },
+    css: {
+        preprocessorOptions: {
+            scss: {
+                api: "modern-compiler"
+            }
+        }
+    }
+});

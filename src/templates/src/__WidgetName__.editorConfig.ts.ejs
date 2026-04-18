@@ -1,0 +1,36 @@
+import { <%= widgetName %>PreviewProps } from "../typings/<%= widgetName %>Props";
+
+type Properties = PropertyGroup[];
+
+type PropertyGroup = {
+    caption: string;
+    propertyGroups?: PropertyGroup[];
+    properties?: Property[];
+};
+
+type Property = {
+    key: string;
+    caption: string;
+    description?: string;
+    objectHeaders?: string[];
+    objects?: ObjectProperties[];
+    properties?: Properties[];
+};
+
+type ObjectProperties = {
+    properties: PropertyGroup[];
+    captions?: string[];
+};
+
+export type PreviewProps = {
+    readOnly: boolean;
+    renderMode: "design" | "xray" | "structure";
+    translate: (text: string) => string;
+};
+
+export function getProperties(
+    _values: <%= widgetName %>PreviewProps,
+    defaultProperties: Properties
+): Properties {
+    return defaultProperties;
+}
