@@ -3,6 +3,7 @@ import { join, dirname, relative, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import ejs from "ejs";
 import { generateFromPackageXml } from "./typings-generator/index.js";
+import type { ScaffoldMode } from "./workspace.js";
 
 export interface ScaffoldOptions {
     widgetName: string;
@@ -11,6 +12,11 @@ export interface ScaffoldOptions {
     packagePath: string;
     needsEntityContext: boolean;
     projectPath: string;
+}
+
+export interface WorkspaceScaffoldOptions extends ScaffoldOptions {
+    mode: ScaffoldMode;
+    workspaceRoot?: string;
 }
 
 interface TemplateVars {
@@ -24,6 +30,8 @@ interface TemplateVars {
     author: string;
     needsEntityContext: string;
     projectPath: string;
+    mode: ScaffoldMode;
+    packageName: string;
 }
 
 function toKebabCase(str: string): string {
@@ -33,19 +41,25 @@ function toKebabCase(str: string): string {
         .toLowerCase();
 }
 
-function computeVars(options: ScaffoldOptions): TemplateVars {
+function computeVars(options: WorkspaceScaffoldOptions): TemplateVars {
     const widgetNameLower = options.widgetName.toLowerCase();
+    const widgetNameKebab = toKebabCase(options.widgetName);
+    const mode = options.mode || "single";
+    const packageName = mode === "workspace" ? `@widgets/${widgetNameKebab}` : widgetNameKebab;
+
     return {
         widgetName: options.widgetName,
         widgetNameLower,
-        widgetNameKebab: toKebabCase(options.widgetName),
+        widgetNameKebab,
         packagePath: options.packagePath,
         packagePathDir: options.packagePath.replace(/\./g, "/"),
         widgetId: `${options.packagePath}.${widgetNameLower}.${options.widgetName}`,
         description: options.description,
         author: options.author,
         needsEntityContext: String(options.needsEntityContext),
-        projectPath: options.projectPath
+        projectPath: options.projectPath,
+        mode,
+        packageName
     };
 }
 
@@ -62,15 +76,28 @@ function walkDir(dir: string): string[] {
     return results;
 }
 
-export async function scaffold(targetDir: string, options: ScaffoldOptions): Promise<void> {
+export async function scaffold(targetDir: string, options: WorkspaceScaffoldOptions): Promise<void> {
     const vars = computeVars(options);
     const __dirname = dirname(fileURLToPath(import.meta.url));
     const templatesDir = join(__dirname, "templates");
+    const mode = options.mode || "single";
 
     const templateFiles = walkDir(templatesDir);
 
+    // Files to skip in workspace mode
+    const skipInWorkspace = [
+        "typings/mendix.d.ts",
+        "typings/css.d.ts"
+    ];
+
     for (const templateFile of templateFiles) {
         const relPath = relative(templatesDir, templateFile);
+
+        // Skip certain files in workspace mode
+        if (mode === "workspace" && skipInWorkspace.some(skip => relPath.includes(skip))) {
+            continue;
+        }
+
         let outputRelPath = relPath.replace(/\.ejs$/, "");
         outputRelPath = outputRelPath.replace(/__WidgetName__/g, vars.widgetName);
 

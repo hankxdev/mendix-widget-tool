@@ -1,5 +1,5 @@
 {
-    "name": "<%= widgetNameKebab %>",
+    "name": "<%= packageName %>",
     "widgetName": "<%= widgetName %>",
     "version": "1.0.0",
     "description": "<%= description %>",
@@ -25,7 +25,8 @@
         "typegen": "node scripts/typegen.mjs"
     },
     "dependencies": {
-        "classnames": "^2.5.1"
+        "classnames": "^2.5.1"<% if (mode === 'workspace') { %>,
+        "@mx/typings": "0.0.0"<% } %>
     },
     "devDependencies": {
         "@rollup/plugin-commonjs": "^28.0.2",
