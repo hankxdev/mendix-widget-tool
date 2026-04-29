@@ -153,8 +153,10 @@ async function main(): Promise<void> {
         .description("Scaffold a modern Mendix pluggable widget project")
         .version(VERSION);
 
-    // Default command - scaffold a standalone widget
+    // Create command - scaffold a standalone widget
     program
+        .command("create", { isDefault: true })
+        .description("Scaffold a standalone Mendix widget (default)")
         .argument("[widget-name]", "Widget name in PascalCase")
         .option("-d, --description <desc>", "Widget description")
         .option("-a, --author <author>", "Author name")
@@ -234,7 +236,9 @@ async function main(): Promise<void> {
         .command("init")
         .description("Initialize a multi-widget workspace")
         .argument("[directory]", "Directory to initialize (defaults to current directory)")
-        .action(async (directory) => {
+        .option("-p, --project-path <path>", "Default Mendix project path", "../../")
+        .option("-n, --namespace <path>", "Default package namespace", "mendix")
+        .action(async (directory, opts) => {
             const targetDir = resolve(process.cwd(), directory || ".");
 
             // Check if already in a workspace
@@ -244,7 +248,10 @@ async function main(): Promise<void> {
             }
 
             try {
-                await initWorkspace(targetDir);
+                await initWorkspace(targetDir, {
+                    mendixProjectPath: opts.projectPath,
+                    defaultPackagePath: opts.namespace
+                });
             } catch (err) {
                 console.error(chalk.red(err instanceof Error ? err.message : String(err)));
                 process.exit(1);
@@ -486,8 +493,7 @@ async function main(): Promise<void> {
                 process.exit(1);
             }
 
-            const config = readWorkspaceConfig(workspaceRoot);
-            const widgetNames = Object.keys(config.widgets);
+            const widgetNames = discoverWidgets(workspaceRoot);
 
             if (widgetNames.length === 0) {
                 console.log(chalk.yellow("\n  No widgets in workspace. Use 'mx-widget-cli add' to add one.\n"));

@@ -103,7 +103,10 @@ export function discoverWidgets(workspaceRoot: string): string[] {
 /**
  * Initializes a new workspace
  */
-export async function initWorkspace(targetDir: string): Promise<void> {
+export async function initWorkspace(
+    targetDir: string,
+    options?: { mendixProjectPath?: string; defaultPackagePath?: string }
+): Promise<void> {
     if (existsSync(targetDir)) {
         const isEmpty = readdirSync(targetDir).length === 0;
         if (!isEmpty) {
@@ -115,16 +118,20 @@ export async function initWorkspace(targetDir: string): Promise<void> {
 
     console.log(chalk.bold("\n  Initialize Mendix Widget Workspace\n"));
 
-    // Prompt for workspace configuration
-    const mendixProjectPath = await input({
-        message: "Mendix project path (relative):",
-        default: "../../"
-    });
+    // Prompt for workspace configuration if not provided
+    const mendixProjectPath =
+        options?.mendixProjectPath ??
+        (await input({
+            message: "Mendix project path (relative):",
+            default: "../../"
+        }));
 
-    const defaultPackagePath = await input({
-        message: "Default package namespace:",
-        default: "mendix"
-    });
+    const defaultPackagePath =
+        options?.defaultPackagePath ??
+        (await input({
+            message: "Default package namespace:",
+            default: "mendix"
+        }));
 
     const spinner = ora("Creating workspace structure...").start();
 
