@@ -1,8 +1,12 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { input } from "@inquirer/prompts";
 import chalk from "chalk";
 import ora from "ora";
+
+// Import version from package.json
+const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8"));
+const VERSION = packageJson.version;
 
 export type ScaffoldMode = "workspace" | "single";
 
@@ -82,11 +86,27 @@ export function writeWorkspaceConfig(workspaceRoot: string, config: WorkspaceCon
 }
 
 /**
+ * Discovers all widgets in the workspace by scanning the widgets directory
+ */
+export function discoverWidgets(workspaceRoot: string): string[] {
+    const widgetsDir = join(workspaceRoot, "widgets");
+    if (!existsSync(widgetsDir)) {
+        return [];
+    }
+
+    return readdirSync(widgetsDir).filter(entry => {
+        const widgetDir = join(widgetsDir, entry);
+        return existsSync(join(widgetDir, "package.json"));
+    });
+}
+
+/**
  * Initializes a new workspace
  */
-export async function initWorkspace(targetDir: string): Promise<void> {
-    const { readdirSync } = await import("node:fs");
-
+export async function initWorkspace(
+    targetDir: string,
+    options?: { mendixProjectPath?: string; defaultPackagePath?: string }
+): Promise<void> {
     if (existsSync(targetDir)) {
         const isEmpty = readdirSync(targetDir).length === 0;
         if (!isEmpty) {
@@ -98,16 +118,20 @@ export async function initWorkspace(targetDir: string): Promise<void> {
 
     console.log(chalk.bold("\n  Initialize Mendix Widget Workspace\n"));
 
-    // Prompt for workspace configuration
-    const mendixProjectPath = await input({
-        message: "Mendix project path (relative):",
-        default: "../../"
-    });
+    // Prompt for workspace configuration if not provided
+    const mendixProjectPath =
+        options?.mendixProjectPath ??
+        (await input({
+            message: "Mendix project path (relative):",
+            default: "../../"
+        }));
 
-    const defaultPackagePath = await input({
-        message: "Default package namespace:",
-        default: "mendix"
-    });
+    const defaultPackagePath =
+        options?.defaultPackagePath ??
+        (await input({
+            message: "Default package namespace:",
+            default: "mendix"
+        }));
 
     const spinner = ora("Creating workspace structure...").start();
 
@@ -135,7 +159,7 @@ export async function initWorkspace(targetDir: string): Promise<void> {
                 test: "mx-widget-cli test --all"
             },
             devDependencies: {
-                "mx-widget-cli": "^1.0.1"
+                "mx-widget-cli": `^${VERSION}`
             }
         };
 
