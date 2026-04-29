@@ -1,11 +1,20 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { execSync } from "node:child_process";
 import { Command } from "commander";
 import { input, confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import ora from "ora";
-import { scaffold, type ScaffoldOptions } from "./scaffold.js";
+import { scaffold, type ScaffoldOptions, type WorkspaceScaffoldOptions } from "./scaffold.js";
+import {
+    detectWorkspaceMode,
+    findWorkspaceRoot,
+    initWorkspace,
+    readWorkspaceConfig,
+    writeWorkspaceConfig,
+    type ScaffoldMode,
+    type WorkspaceConfig
+} from "./workspace.js";
 
 function validateWidgetName(name: string): string | true {
     if (!/^[A-Z][a-zA-Z]*$/.test(name)) {
@@ -91,7 +100,10 @@ async function main(): Promise<void> {
     program
         .name("mx-widget-cli")
         .description("Scaffold a modern Mendix pluggable widget project")
-        .version("1.0.0")
+        .version("1.2.0");
+
+    // Default command - scaffold a standalone widget
+    program
         .argument("[widget-name]", "Widget name in PascalCase")
         .option("-d, --description <desc>", "Widget description")
         .option("-a, --author <author>", "Author name")
@@ -132,7 +144,11 @@ async function main(): Promise<void> {
             const spinner = ora("Scaffolding widget project...").start();
 
             try {
-                await scaffold(targetDir, options);
+                const scaffoldOptions: WorkspaceScaffoldOptions = {
+                    ...options,
+                    mode: "single"
+                };
+                await scaffold(targetDir, scaffoldOptions);
                 spinner.succeed("Project scaffolded");
 
                 if (opts.install !== false) {
@@ -162,7 +178,412 @@ async function main(): Promise<void> {
             }
         });
 
+    // Init command - initialize a workspace
+    program
+        .command("init")
+        .description("Initialize a multi-widget workspace")
+        .argument("[directory]", "Directory to initialize (defaults to current directory)")
+        .action(async (directory) => {
+            const targetDir = resolve(process.cwd(), directory || ".");
+
+            // Check if already in a workspace
+            if (detectWorkspaceMode(targetDir) === "workspace") {
+                console.error(chalk.red("\n  This directory is already a workspace.\n"));
+                process.exit(1);
+            }
+
+            try {
+                await initWorkspace(targetDir);
+            } catch (err) {
+                console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+                process.exit(1);
+            }
+        });
+
+    // Add command - add a widget to workspace
+    program
+        .command("add")
+        .description("Add a widget to the workspace")
+        .argument("[widget-name]", "Widget name in PascalCase")
+        .option("-d, --description <desc>", "Widget description")
+        .option("-a, --author <author>", "Author name")
+        .action(async (widgetNameArg, opts) => {
+            const mode = detectWorkspaceMode();
+
+            if (mode === "single") {
+                console.error(chalk.red("\n  Not in a workspace. Use 'mx-widget-cli init' first or scaffold a standalone widget.\n"));
+                process.exit(1);
+            }
+
+            const workspaceRoot = findWorkspaceRoot();
+            if (!workspaceRoot) {
+                console.error(chalk.red("\n  Could not find workspace root.\n"));
+                process.exit(1);
+            }
+
+            const config = readWorkspaceConfig(workspaceRoot);
+
+            console.log(chalk.bold("\n  Add Widget to Workspace\n"));
+
+            // Prompt for widget details
+            const widgetName = widgetNameArg ?? await input({
+                message: "Widget name (PascalCase):",
+                validate: (val) => {
+                    const result = validateWidgetName(val);
+                    return result === true ? true : result;
+                }
+            });
+
+            if (widgetNameArg) {
+                const valid = validateWidgetName(widgetNameArg);
+                if (valid !== true) {
+                    console.error(chalk.red(valid));
+                    process.exit(1);
+                }
+            }
+
+            // Check if widget already exists
+            if (config.widgets[widgetName]) {
+                console.error(chalk.red(`\n  Widget "${widgetName}" already exists in workspace.\n`));
+                process.exit(1);
+            }
+
+            const description = opts.description ?? await input({
+                message: "Description:",
+                default: "A custom Mendix widget"
+            });
+
+            const author = opts.author ?? await input({
+                message: "Author:",
+                default: getGitUser()
+            });
+
+            const needsEntityContext = await confirm({
+                message: "Needs entity context?",
+                default: true
+            });
+
+            const options: WorkspaceScaffoldOptions = {
+                widgetName,
+                description,
+                author,
+                packagePath: config.defaultPackagePath,
+                needsEntityContext,
+                projectPath: config.mendixProjectPath,
+                mode: "workspace",
+                workspaceRoot
+            };
+
+            const targetDir = join(workspaceRoot, "widgets", widgetName);
+
+            if (existsSync(targetDir)) {
+                console.error(chalk.red(`\n  Directory "${targetDir}" already exists.\n`));
+                process.exit(1);
+            }
+
+            const spinner = ora("Adding widget to workspace...").start();
+
+            try {
+                await scaffold(targetDir, options);
+
+                // Update workspace config
+                config.widgets[widgetName] = {
+                    added: new Date().toISOString()
+                };
+                writeWorkspaceConfig(workspaceRoot, config);
+
+                spinner.succeed("Widget added");
+
+                console.log(chalk.green("\n  Done! Widget added to workspace.\n"));
+                console.log(`  ${chalk.bold("cd widgets/" + widgetName)}  ${chalk.dim("# Navigate to widget")}`);
+                console.log(`  ${chalk.bold("npm run build")}             ${chalk.dim("# Build this widget")}`);
+                console.log();
+                console.log(chalk.dim("  Run npm install in workspace root if needed."));
+                console.log();
+            } catch (err) {
+                spinner.fail("Failed to add widget");
+                console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+                process.exit(1);
+            }
+        });
+
+    // Dev command - run dev mode for widget(s)
+    program
+        .command("dev")
+        .description("Run development mode for widget(s)")
+        .argument("[widgets...]", "Widget name(s) in PascalCase")
+        .option("--all", "Run dev for all widgets")
+        .action(async (widgets: string[], opts) => {
+            const workspaceRoot = findWorkspaceRoot();
+            if (!workspaceRoot) {
+                console.error(chalk.red("\n  Not in a workspace. Run this command from workspace root.\n"));
+                process.exit(1);
+            }
+
+            const config = readWorkspaceConfig(workspaceRoot);
+            const widgetNames = getWidgetNames(widgets, opts.all, config);
+
+            if (widgetNames.length === 0) {
+                console.error(chalk.red("\n  No widgets specified. Use 'mx-widget-cli dev <widget>' or '--all'.\n"));
+                process.exit(1);
+            }
+
+            if (widgetNames.length > 1) {
+                console.error(chalk.red("\n  Dev mode only supports one widget at a time (watch mode).\n"));
+                process.exit(1);
+            }
+
+            const widgetName = widgetNames[0];
+            console.log(chalk.bold(`\n  Running dev mode for ${widgetName}...\n`));
+
+            try {
+                execSync(`npm run dev --workspace=widgets/${widgetName}`, {
+                    cwd: workspaceRoot,
+                    stdio: "inherit"
+                });
+            } catch (err) {
+                console.error(chalk.red("\n  Dev command failed.\n"));
+                process.exit(1);
+            }
+        });
+
+    // Build command - build widget(s)
+    program
+        .command("build")
+        .description("Build widget(s)")
+        .argument("[widgets...]", "Widget name(s) in PascalCase")
+        .option("--all", "Build all widgets")
+        .option("--production", "Production build (release)")
+        .action(async (widgets: string[], opts) => {
+            const workspaceRoot = findWorkspaceRoot();
+            if (!workspaceRoot) {
+                console.error(chalk.red("\n  Not in a workspace. Run this command from workspace root.\n"));
+                process.exit(1);
+            }
+
+            const config = readWorkspaceConfig(workspaceRoot);
+            const widgetNames = getWidgetNames(widgets, opts.all, config);
+
+            if (widgetNames.length === 0) {
+                console.error(chalk.red("\n  No widgets specified. Use 'mx-widget-cli build <widget>' or '--all'.\n"));
+                process.exit(1);
+            }
+
+            const script = opts.production ? "release" : "build";
+            console.log(chalk.bold(`\n  Building ${widgetNames.length} widget(s)...\n`));
+
+            for (const widgetName of widgetNames) {
+                const spinner = ora(`Building ${widgetName}`).start();
+                try {
+                    execSync(`npm run ${script} --workspace=widgets/${widgetName}`, {
+                        cwd: workspaceRoot,
+                        stdio: "pipe"
+                    });
+                    spinner.succeed(`Built ${widgetName}`);
+                } catch (err) {
+                    spinner.fail(`Failed to build ${widgetName}`);
+                    console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+                    process.exit(1);
+                }
+            }
+
+            console.log(chalk.green("\n  Done!\n"));
+        });
+
+    // Test command - run tests for widget(s)
+    program
+        .command("test")
+        .description("Run tests for widget(s)")
+        .argument("[widgets...]", "Widget name(s) in PascalCase")
+        .option("--all", "Test all widgets")
+        .action(async (widgets: string[], opts) => {
+            const workspaceRoot = findWorkspaceRoot();
+            if (!workspaceRoot) {
+                console.error(chalk.red("\n  Not in a workspace. Run this command from workspace root.\n"));
+                process.exit(1);
+            }
+
+            const config = readWorkspaceConfig(workspaceRoot);
+            const widgetNames = getWidgetNames(widgets, opts.all, config);
+
+            if (widgetNames.length === 0) {
+                console.error(chalk.red("\n  No widgets specified. Use 'mx-widget-cli test <widget>' or '--all'.\n"));
+                process.exit(1);
+            }
+
+            console.log(chalk.bold(`\n  Testing ${widgetNames.length} widget(s)...\n`));
+
+            for (const widgetName of widgetNames) {
+                const spinner = ora(`Testing ${widgetName}`).start();
+                try {
+                    execSync(`npm run test --workspace=widgets/${widgetName}`, {
+                        cwd: workspaceRoot,
+                        stdio: "pipe"
+                    });
+                    spinner.succeed(`Tested ${widgetName}`);
+                } catch (err) {
+                    spinner.fail(`Tests failed for ${widgetName}`);
+                    console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+                    process.exit(1);
+                }
+            }
+
+            console.log(chalk.green("\n  Done!\n"));
+        });
+
+    // Lint command - lint widget(s)
+    program
+        .command("lint")
+        .description("Lint widget(s)")
+        .argument("[widgets...]", "Widget name(s) in PascalCase")
+        .option("--all", "Lint all widgets")
+        .option("--fix", "Auto-fix lint errors")
+        .action(async (widgets: string[], opts) => {
+            const workspaceRoot = findWorkspaceRoot();
+            if (!workspaceRoot) {
+                console.error(chalk.red("\n  Not in a workspace. Run this command from workspace root.\n"));
+                process.exit(1);
+            }
+
+            const config = readWorkspaceConfig(workspaceRoot);
+            const widgetNames = getWidgetNames(widgets, opts.all, config);
+
+            if (widgetNames.length === 0) {
+                console.error(chalk.red("\n  No widgets specified. Use 'mx-widget-cli lint <widget>' or '--all'.\n"));
+                process.exit(1);
+            }
+
+            const script = opts.fix ? "lint:fix" : "lint";
+            console.log(chalk.bold(`\n  Linting ${widgetNames.length} widget(s)...\n`));
+
+            for (const widgetName of widgetNames) {
+                const spinner = ora(`Linting ${widgetName}`).start();
+                try {
+                    execSync(`npm run ${script} --workspace=widgets/${widgetName}`, {
+                        cwd: workspaceRoot,
+                        stdio: "pipe"
+                    });
+                    spinner.succeed(`Linted ${widgetName}`);
+                } catch (err) {
+                    spinner.fail(`Lint failed for ${widgetName}`);
+                    console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+                    process.exit(1);
+                }
+            }
+
+            console.log(chalk.green("\n  Done!\n"));
+        });
+
+    // Typegen command - generate types for widget(s)
+    program
+        .command("typegen")
+        .description("Generate TypeScript types for widget(s)")
+        .argument("[widgets...]", "Widget name(s) in PascalCase")
+        .option("--all", "Generate types for all widgets")
+        .action(async (widgets: string[], opts) => {
+            const workspaceRoot = findWorkspaceRoot();
+            if (!workspaceRoot) {
+                console.error(chalk.red("\n  Not in a workspace. Run this command from workspace root.\n"));
+                process.exit(1);
+            }
+
+            const config = readWorkspaceConfig(workspaceRoot);
+            const widgetNames = getWidgetNames(widgets, opts.all, config);
+
+            if (widgetNames.length === 0) {
+                console.error(chalk.red("\n  No widgets specified. Use 'mx-widget-cli typegen <widget>' or '--all'.\n"));
+                process.exit(1);
+            }
+
+            console.log(chalk.bold(`\n  Generating types for ${widgetNames.length} widget(s)...\n`));
+
+            for (const widgetName of widgetNames) {
+                const spinner = ora(`Generating types for ${widgetName}`).start();
+                try {
+                    execSync(`npm run typegen --workspace=widgets/${widgetName}`, {
+                        cwd: workspaceRoot,
+                        stdio: "pipe"
+                    });
+                    spinner.succeed(`Generated types for ${widgetName}`);
+                } catch (err) {
+                    spinner.fail(`Type generation failed for ${widgetName}`);
+                    console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+                    process.exit(1);
+                }
+            }
+
+            console.log(chalk.green("\n  Done!\n"));
+        });
+
+    // List command - list all widgets in workspace
+    program
+        .command("list")
+        .description("List all widgets in the workspace")
+        .action(async () => {
+            const workspaceRoot = findWorkspaceRoot();
+            if (!workspaceRoot) {
+                console.error(chalk.red("\n  Not in a workspace. Run this command from workspace root.\n"));
+                process.exit(1);
+            }
+
+            const config = readWorkspaceConfig(workspaceRoot);
+            const widgetNames = Object.keys(config.widgets);
+
+            if (widgetNames.length === 0) {
+                console.log(chalk.yellow("\n  No widgets in workspace. Use 'mx-widget-cli add' to add one.\n"));
+                return;
+            }
+
+            console.log(chalk.bold("\n  Workspace Widgets\n"));
+
+            for (const widgetName of widgetNames) {
+                const widgetDir = join(workspaceRoot, "widgets", widgetName);
+                const packageJsonPath = join(widgetDir, "package.json");
+
+                if (existsSync(packageJsonPath)) {
+                    try {
+                        const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+                        const version = packageJson.version || "?";
+                        const description = packageJson.description || "No description";
+                        console.log(`  ${chalk.bold(widgetName)} ${chalk.dim(`v${version}`)}`);
+                        console.log(`  ${chalk.dim(description)}`);
+                        console.log();
+                    } catch {
+                        console.log(`  ${chalk.bold(widgetName)} ${chalk.red("(invalid package.json)")}`);
+                        console.log();
+                    }
+                } else {
+                    console.log(`  ${chalk.bold(widgetName)} ${chalk.red("(missing package.json)")}`);
+                    console.log();
+                }
+            }
+        });
+
     await program.parseAsync(process.argv);
+}
+
+function getWidgetNames(widgets: string[], all: boolean, config: WorkspaceConfig): string[] {
+    if (all) {
+        return Object.keys(config.widgets);
+    }
+
+    if (widgets.length === 0) {
+        return [];
+    }
+
+    // Validate widget names exist in workspace
+    const availableWidgets = Object.keys(config.widgets);
+    const invalidWidgets = widgets.filter(w => !availableWidgets.includes(w));
+
+    if (invalidWidgets.length > 0) {
+        console.error(chalk.red(`\n  Unknown widget(s): ${invalidWidgets.join(", ")}\n`));
+        console.log(chalk.dim("  Available widgets:"));
+        availableWidgets.forEach(w => console.log(chalk.dim(`    - ${w}`)));
+        console.log();
+        process.exit(1);
+    }
+
+    return widgets;
 }
 
 main().catch(err => {
