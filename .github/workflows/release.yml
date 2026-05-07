@@ -30,16 +30,12 @@ jobs:
 
       - run: npm ci
 
+      - run: npm run build
+
       - name: Bump version and tag
         run: |
           npm version patch -m "chore(release): %s [skip ci]"
           git push origin main --follow-tags
 
-      - run: npm run build
-
       - name: Publish to npm
-        uses: JS-DevTools/npm-publish@v3
-        with:
-          token: "" # OIDC doesn't need a token here
-          provenance: true
-          access: public
+        run: npm publish --provenance --access public
