@@ -21,7 +21,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.14.0
+          registry-url: https://registry.npmjs.org
 
       - name: Configure Git
         run: |
@@ -37,5 +38,5 @@ jobs:
           npm version patch -m "chore(release): %s [skip ci]"
           git push origin main --follow-tags
 
-      - name: Publish to npm
-        run: npm publish --provenance --access public
+      - name: Publish to npm via Trusted Publisher (OIDC)
+        run: npm publish --access public
