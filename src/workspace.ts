@@ -155,8 +155,9 @@ export async function initWorkspace(
             ],
             scripts: {
                 dev: "mx-widget-cli dev",
-                build: "mx-widget-cli build --all",
-                test: "mx-widget-cli test --all"
+                build: "mx-widget-cli build",
+                release: "mx-widget-cli build --production",
+                test: "mx-widget-cli test"
             },
             devDependencies: {
                 "mx-widget-cli": `^${VERSION}`
@@ -198,80 +199,280 @@ export async function initWorkspace(
         const mendixDts = `// Type definitions for Mendix Client API
 // Documentation: https://apidocs.rnd.mendix.com/10/client/
 
-declare const mx: {
-    data: typeof mxData;
-    ui: typeof mxUI;
-};
+declare global {
+    const mx: {
+        data: typeof mxData;
+        ui: typeof mxUI;
+        session?: {
+            sessionData: mxSession.SessionData;
+            getUserRoleName?(): string | string[];
+            getUserRoleNames(): string[];
+            getUserId?(): string;
+            getUserName?(): string;
+            getUserObject?(): mxSession.UserObject | undefined;
+        };
+        logout?(): void;
+        reloadWithState?(): void;
+    };
 
-// mx.data namespace - Data operations
-declare namespace mxData {
+    // mx.session namespace - Session information
+    namespace mxSession {
+        interface AttributeValue {
+            value: string;
+        }
+
+        interface UserAttributes {
+            Email: AttributeValue;
+            FullName: AttributeValue;
+            Base64Thumbnail: AttributeValue;
+        }
+
+        interface User {
+            attributes: UserAttributes;
+        }
+
+        interface UserObject {
+            getGuid(): string;
+            jsonData: {
+                attributes: {
+                    [attribute: string]: { value: string } | undefined;
+                };
+            };
+            addReference(refName: string, guid: string): void;
+        }
+
+        interface SessionData {
+            user: User;
+            local: {
+                code: string;
+            };
+            [key: string]: any;
+        }
+    }
+
+    // mx.data namespace - Data operations
+    namespace mxData {
     // Core types
     type GUID = string;
     type Callback<T> = (result: T) => void;
     type ErrorCallback = (error: Error) => void;
+    type SubscribeHandle = number;
+    type SortSpec = Array<[string, "asc" | "desc"]>;
+    type ActionResultValue = MxObject | MxObject[] | boolean | number | string;
 
-    // Essential methods
+    // Methods
+    function action(args: ActionArgs): void;
+    function callNanoflow(params: CallNanoflowArgs): void;
     function get(args: GetArgs): void;
+    function getOffline(
+        entity: string,
+        constraints: OfflineConstraint[],
+        filter: OfflineFilter,
+        callback: (objs: MxObject[], count: number) => void,
+        error?: ErrorCallback
+    ): void;
     function create(args: CreateArgs): void;
     function commit(args: CommitArgs): void;
     function rollback(args: RollbackArgs): void;
     function remove(args: RemoveArgs): void;
-    function subscribe(args: SubscribeArgs): number;
-    function unsubscribe(handle: number): void;
+    function saveDocument(
+        guid: GUID,
+        fileName: string | null,
+        params: SaveDocumentParams,
+        blob: Blob,
+        callback: () => void,
+        error?: ErrorCallback
+    ): void;
+    function subscribe(args: SubscribeArgs): SubscribeHandle;
+    function unsubscribe(handle: SubscribeHandle): void;
+    function update(args: UpdateArgs): void;
 
-    // Parameter interfaces
+    // --- action ---
+
+    interface ActionArgs {
+        params: ActionParams;
+        /** The page on which instructions returned by the server ('close form' in particular) can be executed. */
+        origin?: any;
+        /** Whether the Microflow should be executed asynchronously. The result of an async microflow is not returned. */
+        async?: boolean;
+        callback?: (value: ActionResultValue) => void;
+        error?: ErrorCallback;
+        onValidation?: (validations: ObjectValidation[]) => void;
+    }
+
+    interface ActionParams {
+        /** Name of the Microflow to invoke. */
+        actionname: string;
+        /** To what to apply the Microflow. */
+        applyto?: "none" | "set" | "selection";
+        /** The GUIDs to apply the Microflow to (when applyto is "selection"). */
+        guids?: GUID[];
+        /** The root entity for an XPath query (when applyto is "set"). */
+        xpath?: string;
+        /** The constraints for the xpath parameter. */
+        constraints?: string;
+        /** Sorting of XPath query results before feeding them to the Microflow. */
+        sort?: SortSpec;
+    }
+
+    // --- callNanoflow ---
+
+    interface CallNanoflowArgs {
+        /** Nanoflow definition to execute (from widget property). Do not tamper with this value. */
+        nanoflow: object;
+        /** The context for the Nanoflow. */
+        context?: any;
+        /** The page on which instructions ('close form' in particular) can be executed. */
+        origin?: any;
+        callback?: (value: ActionResultValue) => void;
+        error?: ErrorCallback;
+    }
+
+    // --- get ---
+
     interface GetArgs {
         guid?: GUID;
         guids?: GUID[];
+        /** XPath query to retrieve (not supported offline). */
         xpath?: string;
+        /** A Microflow to fetch objects from (not supported offline). */
         microflow?: string;
-        callback: Callback<MxObject | MxObject[]>;
+        /** Path (reference name) to the desired object, relative to the object referenced by guid. */
+        path?: string;
+        callback: (objs: any) => void;
         error?: ErrorCallback;
+        /** Whether a count of the entire set should be returned. */
+        count?: boolean;
         filter?: FilterOptions;
     }
 
+    interface FilterOptions {
+        /** If provided, only the given attributes will be fetched. */
+        attributes?: string[];
+        offset?: number;
+        amount?: number;
+        sort?: SortSpec;
+        distinct?: boolean;
+        /** Pre-fetch associated references within the same request (XPath only). */
+        references?: { [refName: string]: ReferencesSpec };
+    }
+
+    interface ReferencesSpec {
+        /** If provided, only the given attributes of referenced objects will be fetched. */
+        attributes?: string[];
+        /** Maximum number of referenced objects to fetch. */
+        amount?: number;
+        sort?: SortSpec;
+    }
+
+    // --- getOffline ---
+
+    interface OfflineConstraint {
+        /** One of: equals, lessThan, lessThanOrEquals, greaterThan, greaterThanOrEquals, contains, and, or. */
+        operator: "equals" | "lessThan" | "lessThanOrEquals" | "greaterThan" | "greaterThanOrEquals" | "contains" | "and" | "or";
+        /** The attribute (or reference) to constrain on. Omit for "and" / "or" operators. */
+        attribute?: string;
+        /** An argument for the constraint's operator. Omit for "and" / "or" operators. */
+        value?: string | number;
+        /** If true, return objects NOT matching the constraint. */
+        negate?: boolean;
+        /** Nested constraints to combine with the given operator ("and" / "or" only). */
+        constraints?: OfflineConstraint[];
+    }
+
+    interface OfflineFilter {
+        offset?: number;
+        limit?: number;
+        sort?: SortSpec;
+    }
+
+    // --- create ---
+
     interface CreateArgs {
         entity: string;
-        callback: Callback<MxObject>;
+        callback: (obj: MxObject) => void;
         error?: ErrorCallback;
     }
+
+    // --- commit ---
 
     interface CommitArgs {
-        mxobj: MxObject;
-        callback?: Callback<boolean>;
+        mxobj?: MxObject;
+        mxobjs?: MxObject[];
+        callback?: () => void;
+        error?: ErrorCallback;
+        onValidation?: (validations: ObjectValidation[]) => void;
+    }
+
+    // --- rollback ---
+
+    interface RollbackArgs {
+        mxobj?: MxObject;
+        mxobjs?: MxObject[];
+        callback?: () => void;
         error?: ErrorCallback;
     }
 
-    interface RollbackArgs {
-        mxobj: MxObject;
-        callback?: Callback<boolean>;
-        error?: ErrorCallback;
-    }
+    // --- remove ---
 
     interface RemoveArgs {
         guid?: GUID;
         guids?: GUID[];
-        callback?: Callback<boolean>;
+        callback?: () => void;
         error?: ErrorCallback;
     }
+
+    // --- saveDocument ---
+
+    interface SaveDocumentParams {
+        /** Width of the generated thumbnail (for images). */
+        width?: number;
+        /** Height of the generated thumbnail (for images). */
+        height?: number;
+        [key: string]: any;
+    }
+
+    // --- subscribe ---
 
     interface SubscribeArgs {
+        /** GUID to subscribe to (object-level or attribute-level changes). */
         guid?: GUID;
+        /** Entity to subscribe to (entity-level changes). */
         entity?: string;
+        /** Attribute to subscribe to (attribute-level changes, requires guid). */
         attr?: string;
-        callback: Callback<MxObject>;
-        error?: ErrorCallback;
+        /** Subscribe to validation feedback on an MxObject. */
+        val?: boolean;
+        callback: SubscribeObjectCallback | SubscribeAttributeCallback | SubscribeEntityCallback | SubscribeValidationCallback;
     }
 
-    interface FilterOptions {
-        offset?: number;
-        amount?: number;
-        sort?: Array<[string, "asc" | "desc"]>;
-        distinct?: boolean;
-        references?: { [key: string]: string };
+    type SubscribeObjectCallback = (guid: GUID) => void;
+    type SubscribeAttributeCallback = (guid: GUID, attr: string, value: any) => void;
+    type SubscribeEntityCallback = (entity: string) => void;
+    type SubscribeValidationCallback = (validations: ObjectValidation[]) => void;
+
+    // --- update ---
+
+    interface UpdateArgs {
+        /** GUID to invoke the update for. */
+        guid?: GUID;
+        /** Entity to invoke the update for. */
+        entity?: string;
+        /** Attribute to invoke the update for. */
+        attr?: string;
+        callback?: () => void;
     }
 
-    // MxObject interface
+    // --- ObjectValidation ---
+
+    interface ObjectValidation {
+        getGuid(): GUID;
+        getReasonByAttribute(attr: string): string;
+        removeAttribute(attr: string): void;
+    }
+
+    // --- MxObject ---
+
     interface MxObject {
         getGuid(): GUID;
         getEntity(): string;
@@ -286,34 +487,37 @@ declare namespace mxData {
     }
 }
 
-// mx.ui namespace - UI operations
-declare namespace mxUI {
-    function openForm(path: string, args?: OpenFormArgs, callback?: () => void, error?: ErrorCallback): void;
-    function back(): void;
-    function reload(): void;
-    function showProgress(message?: string, modal?: boolean): number;
-    function hideProgress(handle: number): void;
-    function info(message: string, modal?: boolean): void;
-    function error(message: string, modal?: boolean): void;
-    function warning(message: string, modal?: boolean): void;
-    function confirmation(args: ConfirmationArgs): void;
+    // mx.ui namespace - UI operations
+    namespace mxUI {
+        function openForm(path: string, args?: OpenFormArgs, callback?: () => void, error?: ErrorCallback): void;
+        function back(): void;
+        function reload(): void;
+        function showProgress(message?: string, modal?: boolean): number;
+        function hideProgress(handle: number): void;
+        function info(message: string, modal?: boolean): void;
+        function error(message: string, modal?: boolean): void;
+        function warning(message: string, modal?: boolean): void;
+        function confirmation(args: ConfirmationArgs): void;
 
-    interface OpenFormArgs {
-        location?: "content" | "popup" | "modal";
-        context?: any;
-        callback?: () => void;
-        error?: ErrorCallback;
+        interface OpenFormArgs {
+            location?: "content" | "popup" | "modal";
+            context?: any;
+            callback?: () => void;
+            error?: ErrorCallback;
+        }
+
+        interface ConfirmationArgs {
+            content: string;
+            proceed: string;
+            cancel: string;
+            handler: (confirmed: boolean) => void;
+        }
+
+        type ErrorCallback = (error: Error) => void;
     }
-
-    interface ConfirmationArgs {
-        content: string;
-        proceed: string;
-        cancel: string;
-        handler: (confirmed: boolean) => void;
-    }
-
-    type ErrorCallback = (error: Error) => void;
 }
+
+export {};
 `;
 
         writeFileSync(
