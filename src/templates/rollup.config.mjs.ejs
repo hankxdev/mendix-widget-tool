@@ -47,10 +47,10 @@ function copyXmlAndIcons() {
     }
 }
 
-async function createMpk(production) {
+async function createMpk() {
     mkdirSync(mpkDir, { recursive: true });
     await zip(outDir, mpkFile);
-    if (!production && projectPath && existsSync(projectPath)) {
+    if (projectPath && existsSync(projectPath)) {
         const widgetsPath = join(projectPath, "widgets");
         const deploymentPath = join(projectPath, "deployment/web/widgets");
         mkdirSync(widgetsPath, { recursive: true });
@@ -63,8 +63,8 @@ async function createMpk(production) {
 function postCssPlugin(outputFormat, production) {
     return postcss({
         extensions: [".css", ".sass", ".scss"],
-        extract: outputFormat === "amd",
-        inject: outputFormat !== "amd",
+        extract: production && outputFormat === "amd",
+        inject: !(production && outputFormat === "amd"),
         minimize: production,
         plugins: [
             postcssImport(),
@@ -118,9 +118,9 @@ export default args => {
                 postCssPlugin(format, production),
                 production ? terser() : null,
                 args.watch && !production && projectPath && format === "amd"
-                    ? livereload()
+                    ? livereload({ watch: join(projectPath, "deployment/web/widgets") })
                     : null,
-                command([async () => createMpk(production)])
+                command([async () => createMpk()])
             ].filter(Boolean),
             onwarn: (warning, warn) => {
                 if (warning.code === "MODULE_LEVEL_DIRECTIVE" || warning.code === "SOURCEMAP_ERROR") return;
@@ -166,7 +166,7 @@ export default args => {
                     use: ["sass"]
                 }),
                 production ? terser() : null,
-                command([async () => createMpk(production)])
+                command([async () => createMpk()])
             ].filter(Boolean),
             onwarn: (warning, warn) => {
                 if (warning.code === "MODULE_LEVEL_DIRECTIVE" || warning.code === "SOURCEMAP_ERROR") return;
@@ -200,7 +200,7 @@ export default args => {
                 }),
                 image(),
                 production ? terser() : null,
-                command([async () => createMpk(production)])
+                command([async () => createMpk()])
             ].filter(Boolean),
             onwarn: (warning, warn) => {
                 if (warning.code === "MODULE_LEVEL_DIRECTIVE" || warning.code === "SOURCEMAP_ERROR") return;

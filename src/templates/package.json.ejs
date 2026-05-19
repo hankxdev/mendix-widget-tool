@@ -17,7 +17,7 @@
         "dev": "rollup -c --watch",
         "dev:preview": "vite",
         "build": "rollup -c",
-        "release": "npm run lint && rollup -c --configProduction",
+        "release": "npm run lint:fix && rollup -c --configProduction",
         "test": "vitest run",
         "test:watch": "vitest",
         "lint": "prettier --check \"src/**/*.{ts,tsx,scss,xml}\" && eslint src/",

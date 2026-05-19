@@ -120,7 +120,7 @@ async function runOrchestratedCommand(
     const widgetNames = getWidgetNames(widgets, !!options.all);
 
     if (widgetNames.length === 0) {
-        console.error(chalk.red(`\n  No widgets specified. Use 'mx-widget-cli ${title.toLowerCase()} <widget>' or '--all'.\n`));
+        console.error(chalk.red(`\n  No widgets found in this workspace.\n`));
         process.exit(1);
     }
 
@@ -386,15 +386,21 @@ async function main(): Promise<void> {
             }
 
             const config = readWorkspaceConfig(workspaceRoot);
-            const widgetNames = getWidgetNames(widgets, opts.all);
 
-            if (widgetNames.length === 0) {
-                console.error(chalk.red("\n  No widgets specified. Use 'mx-widget-cli dev <widget>' or '--all'.\n"));
+            if (widgets.length === 0 && !opts.all) {
+                console.error(chalk.red("\n  No widget specified. Run 'mx-widget-cli dev <widget>'.\n"));
                 process.exit(1);
             }
 
+            const widgetNames = getWidgetNames(widgets, opts.all);
+
             if (widgetNames.length > 1) {
                 console.error(chalk.red("\n  Dev mode only supports one widget at a time (watch mode).\n"));
+                process.exit(1);
+            }
+
+            if (widgetNames.length === 0) {
+                console.error(chalk.red("\n  No widgets found in this workspace.\n"));
                 process.exit(1);
             }
 
@@ -415,9 +421,9 @@ async function main(): Promise<void> {
     // Build command - build widget(s)
     program
         .command("build")
-        .description("Build widget(s)")
+        .description("Build widget(s) (defaults to all when none are specified)")
         .argument("[widgets...]", "Widget name(s) in PascalCase")
-        .option("--all", "Build all widgets")
+        .option("--all", "Explicitly build all widgets (default when no names are given)")
         .option("--production", "Production build (release)")
         .action(async (widgets, opts) => {
             await runOrchestratedCommand(
@@ -433,9 +439,9 @@ async function main(): Promise<void> {
     // Test command - run tests for widget(s)
     program
         .command("test")
-        .description("Run tests for widget(s)")
+        .description("Run tests for widget(s) (defaults to all when none are specified)")
         .argument("[widgets...]", "Widget name(s) in PascalCase")
-        .option("--all", "Test all widgets")
+        .option("--all", "Explicitly test all widgets (default when no names are given)")
         .action(async (widgets, opts) => {
             await runOrchestratedCommand(
                 "Testing",
@@ -450,9 +456,9 @@ async function main(): Promise<void> {
     // Lint command - lint widget(s)
     program
         .command("lint")
-        .description("Lint widget(s)")
+        .description("Lint widget(s) (defaults to all when none are specified)")
         .argument("[widgets...]", "Widget name(s) in PascalCase")
-        .option("--all", "Lint all widgets")
+        .option("--all", "Explicitly lint all widgets (default when no names are given)")
         .option("--fix", "Auto-fix lint errors")
         .action(async (widgets, opts) => {
             await runOrchestratedCommand(
@@ -468,9 +474,9 @@ async function main(): Promise<void> {
     // Typegen command - generate types for widget(s)
     program
         .command("typegen")
-        .description("Generate TypeScript types for widget(s)")
+        .description("Generate TypeScript types for widget(s) (defaults to all when none are specified)")
         .argument("[widgets...]", "Widget name(s) in PascalCase")
-        .option("--all", "Generate types for all widgets")
+        .option("--all", "Explicitly generate types for all widgets (default when no names are given)")
         .action(async (widgets, opts) => {
             await runOrchestratedCommand(
                 "Generating types for",
@@ -536,12 +542,10 @@ function getWidgetNames(widgets: string[], all: boolean): string[] {
 
     const availableWidgets = discoverWidgets(workspaceRoot);
 
-    if (all) {
+    // No widgets specified (or --all flag) → run for every widget in the workspace.
+    // The dev command guards against this separately because it can only watch one widget at a time.
+    if (all || widgets.length === 0) {
         return availableWidgets;
-    }
-
-    if (widgets.length === 0) {
-        return [];
     }
 
     // Validate widget names exist in workspace
