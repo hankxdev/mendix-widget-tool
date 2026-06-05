@@ -84,17 +84,24 @@ export async function scaffold(targetDir: string, options: WorkspaceScaffoldOpti
 
     const templateFiles = walkDir(templatesDir);
 
-    // Files to skip in workspace mode
+    // Files to skip in workspace mode (shared-typings provides these)
     const skipInWorkspace = [
         "typings/mendix.d.ts",
         "typings/css.d.ts"
     ];
 
+    // Files to skip in single mode (index.d.ts uses reference paths to shared-typings)
+    const skipInSingle = [
+        "typings/index.d.ts"
+    ];
+
     for (const templateFile of templateFiles) {
         const relPath = relative(templatesDir, templateFile);
 
-        // Skip certain files in workspace mode
         if (mode === "workspace" && skipInWorkspace.some(skip => relPath.includes(skip))) {
+            continue;
+        }
+        if (mode === "single" && skipInSingle.some(skip => relPath.includes(skip))) {
             continue;
         }
 

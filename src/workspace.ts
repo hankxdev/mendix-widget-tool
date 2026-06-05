@@ -229,6 +229,7 @@ declare global {
 
         interface User {
             attributes: UserAttributes;
+            guid: string;
         }
 
         interface UserObject {
@@ -246,6 +247,7 @@ declare global {
             local: {
                 code: string;
             };
+            csrftoken: string;
             [key: string]: any;
         }
     }

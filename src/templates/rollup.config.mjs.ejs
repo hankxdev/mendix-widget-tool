@@ -7,7 +7,7 @@ import terser from "@rollup/plugin-terser";
 import typescript from "@rollup/plugin-typescript";
 import command from "rollup-plugin-command";
 import livereload from "rollup-plugin-livereload";
-import postcss from "rollup-plugin-postcss";
+import styles from "rollup-plugin-styles";
 import postcssImport from "postcss-import";
 import postcssUrl from "postcss-url";
 import { zip } from "zip-a-folder";
@@ -60,20 +60,19 @@ async function createMpk() {
     }
 }
 
-function postCssPlugin(outputFormat, production) {
-    return postcss({
-        extensions: [".css", ".sass", ".scss"],
-        extract: production && outputFormat === "amd",
-        inject: !(production && outputFormat === "amd"),
+function stylesPlugin(outputFormat, production) {
+    const shouldExtract = production && outputFormat === "amd";
+    return styles({
+        mode: shouldExtract ? ["extract", `${outWidgetFile}.css`] : "inject",
         minimize: production,
+        sourceMap: !production ? "inline" : false,
+        url: false,
         plugins: [
             postcssImport(),
             postcssUrl({ url: "copy", assetsPath: "assets" }),
             postcssUrl({ url: cssUrlTransform })
         ],
-        sourceMap: !production ? "inline" : false,
-        use: ["sass"],
-        to: join(outDir, `${outWidgetFile}.css`)
+        sass: { impl: "sass" }
     });
 }
 
@@ -115,7 +114,7 @@ export default args => {
                     requireReturnsDefault: "auto"
                 }),
                 image(),
-                postCssPlugin(format, production),
+                stylesPlugin(format, production),
                 production ? terser() : null,
                 args.watch && !production && projectPath && format === "amd"
                     ? livereload({ watch: join(projectPath, "deployment/web/widgets") })
@@ -156,14 +155,13 @@ export default args => {
                     requireReturnsDefault: "auto"
                 }),
                 image(),
-                postcss({
-                    extensions: [".css", ".sass", ".scss"],
-                    extract: false,
-                    inject: true,
+                styles({
+                    mode: "inject",
                     minimize: production,
-                    plugins: [postcssImport(), postcssUrl({ url: "inline" })],
                     sourceMap: !production ? "inline" : false,
-                    use: ["sass"]
+                    url: false,
+                    plugins: [postcssImport(), postcssUrl({ url: "inline" })],
+                    sass: { impl: "sass" }
                 }),
                 production ? terser() : null,
                 command([async () => createMpk()])
