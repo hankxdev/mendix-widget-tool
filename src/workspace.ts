@@ -156,7 +156,7 @@ export async function initWorkspace(
             scripts: {
                 dev: "mx-widget-cli dev",
                 build: "mx-widget-cli build",
-                release: "mx-widget-cli build --production",
+                release: "mx-widget-cli release",
                 test: "mx-widget-cli test"
             },
             devDependencies: {
@@ -203,20 +203,29 @@ declare global {
     const mx: {
         data: typeof mxData;
         ui: typeof mxUI;
-        session?: {
+        session: {
             sessionData: mxSession.SessionData;
-            getUserRoleName?(): string | string[];
+            getUserRoleName(): string | string[];
             getUserRoleNames(): string[];
-            getUserId?(): string;
-            getUserName?(): string;
-            getUserObject?(): mxSession.UserObject | undefined;
+            getUserId(): string;
+            getUserName(): string;
+            getUserObject(): mxSession.UserObject | undefined;
+            getConfig(key: string): any;
+            getConstants(): mxSession.Constant[];
         };
-        logout?(): void;
-        reloadWithState?(): void;
+        logout(): void;
+        reloadWithState(): void;
     };
 
     // mx.session namespace - Session information
     namespace mxSession {
+        type Constant =
+            | { name: string; type: "String"; value: string }
+            | { name: string; type: "Boolean"; value: boolean }
+            | { name: string; type: "Date and Time"; value: Date }
+            | { name: string; type: "Decimal"; value: number }
+            | { name: string; type: "Int" | "Long" | "Int/Long"; value: number };
+
         interface AttributeValue {
             value: string;
         }
@@ -542,6 +551,16 @@ declare module "*.scss" {
 declare module "*.sass" {
     const content: string;
     export default content;
+}
+
+declare module "*.svg" {
+    const src: string;
+    export default src;
+}
+
+declare module "*.json" {
+    const value: unknown;
+    export default value;
 }
 `;
 

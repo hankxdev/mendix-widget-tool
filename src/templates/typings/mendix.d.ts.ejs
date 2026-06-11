@@ -7,18 +7,27 @@ declare global {
         ui: typeof mxUI;
         session: {
             sessionData: mxSession.SessionData;
-            getUserRoleName?(): string | string[];
+            getUserRoleName(): string | string[];
             getUserRoleNames(): string[];
-            getUserId?(): string;
-            getUserName?(): string;
-            getUserObject?(): mxSession.UserObject | undefined;
+            getUserId(): string;
+            getUserName(): string;
+            getUserObject(): mxSession.UserObject | undefined;
+            getConfig(key: string): any;
+            getConstants(): mxSession.Constant[];
         };
-        logout?(): void;
-        reloadWithState?(): void;
+        logout(): void;
+        reloadWithState(): void;
     };
 
     // mx.session namespace - Session information
     namespace mxSession {
+        type Constant =
+            | { name: string; type: "String"; value: string }
+            | { name: string; type: "Boolean"; value: boolean }
+            | { name: string; type: "Date and Time"; value: Date }
+            | { name: string; type: "Decimal"; value: number }
+            | { name: string; type: "Int" | "Long" | "Int/Long"; value: number };
+
         interface AttributeValue {
             value: string;
         }
@@ -95,7 +104,9 @@ declare global {
 
     interface ActionArgs {
         params: ActionParams;
+        /** The page on which instructions returned by the server ('close form' in particular) can be executed. */
         origin?: any;
+        /** Whether the Microflow should be executed asynchronously. The result of an async microflow is not returned. */
         async?: boolean;
         callback?: (value: ActionResultValue) => void;
         error?: ErrorCallback;
@@ -103,19 +114,28 @@ declare global {
     }
 
     interface ActionParams {
+        /** Name of the Microflow to invoke. */
         actionname: string;
+        /** To what to apply the Microflow. */
         applyto?: "none" | "set" | "selection";
+        /** The GUIDs to apply the Microflow to (when applyto is "selection"). */
         guids?: GUID[];
+        /** The root entity for an XPath query (when applyto is "set"). */
         xpath?: string;
+        /** The constraints for the xpath parameter. */
         constraints?: string;
+        /** Sorting of XPath query results before feeding them to the Microflow. */
         sort?: SortSpec;
     }
 
     // --- callNanoflow ---
 
     interface CallNanoflowArgs {
+        /** Nanoflow definition to execute (from widget property). Do not tamper with this value. */
         nanoflow: object;
+        /** The context for the Nanoflow. */
         context?: any;
+        /** The page on which instructions ('close form' in particular) can be executed. */
         origin?: any;
         callback?: (value: ActionResultValue) => void;
         error?: ErrorCallback;
@@ -126,26 +146,34 @@ declare global {
     interface GetArgs {
         guid?: GUID;
         guids?: GUID[];
+        /** XPath query to retrieve (not supported offline). */
         xpath?: string;
+        /** A Microflow to fetch objects from (not supported offline). */
         microflow?: string;
+        /** Path (reference name) to the desired object, relative to the object referenced by guid. */
         path?: string;
         callback: (objs: any) => void;
         error?: ErrorCallback;
+        /** Whether a count of the entire set should be returned. */
         count?: boolean;
         filter?: FilterOptions;
     }
 
     interface FilterOptions {
+        /** If provided, only the given attributes will be fetched. */
         attributes?: string[];
         offset?: number;
         amount?: number;
         sort?: SortSpec;
         distinct?: boolean;
+        /** Pre-fetch associated references within the same request (XPath only). */
         references?: { [refName: string]: ReferencesSpec };
     }
 
     interface ReferencesSpec {
+        /** If provided, only the given attributes of referenced objects will be fetched. */
         attributes?: string[];
+        /** Maximum number of referenced objects to fetch. */
         amount?: number;
         sort?: SortSpec;
     }
@@ -153,10 +181,15 @@ declare global {
     // --- getOffline ---
 
     interface OfflineConstraint {
+        /** One of: equals, lessThan, lessThanOrEquals, greaterThan, greaterThanOrEquals, contains, and, or. */
         operator: "equals" | "lessThan" | "lessThanOrEquals" | "greaterThan" | "greaterThanOrEquals" | "contains" | "and" | "or";
+        /** The attribute (or reference) to constrain on. Omit for "and" / "or" operators. */
         attribute?: string;
+        /** An argument for the constraint's operator. Omit for "and" / "or" operators. */
         value?: string | number;
+        /** If true, return objects NOT matching the constraint. */
         negate?: boolean;
+        /** Nested constraints to combine with the given operator ("and" / "or" only). */
         constraints?: OfflineConstraint[];
     }
 
@@ -205,7 +238,9 @@ declare global {
     // --- saveDocument ---
 
     interface SaveDocumentParams {
+        /** Width of the generated thumbnail (for images). */
         width?: number;
+        /** Height of the generated thumbnail (for images). */
         height?: number;
         [key: string]: any;
     }
@@ -213,9 +248,13 @@ declare global {
     // --- subscribe ---
 
     interface SubscribeArgs {
+        /** GUID to subscribe to (object-level or attribute-level changes). */
         guid?: GUID;
+        /** Entity to subscribe to (entity-level changes). */
         entity?: string;
+        /** Attribute to subscribe to (attribute-level changes, requires guid). */
         attr?: string;
+        /** Subscribe to validation feedback on an MxObject. */
         val?: boolean;
         callback: SubscribeObjectCallback | SubscribeAttributeCallback | SubscribeEntityCallback | SubscribeValidationCallback;
     }
@@ -228,8 +267,11 @@ declare global {
     // --- update ---
 
     interface UpdateArgs {
+        /** GUID to invoke the update for. */
         guid?: GUID;
+        /** Entity to invoke the update for. */
         entity?: string;
+        /** Attribute to invoke the update for. */
         attr?: string;
         callback?: () => void;
     }

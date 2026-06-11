@@ -436,6 +436,23 @@ async function main(): Promise<void> {
             );
         });
 
+    // Release command - lint:fix + production build for widget(s)
+    program
+        .command("release")
+        .description("Release widget(s): runs each widget's release script (lint:fix + production build)")
+        .argument("[widgets...]", "Widget name(s) in PascalCase")
+        .option("--all", "Explicitly release all widgets (default when no names are given)")
+        .action(async (widgets, opts) => {
+            await runOrchestratedCommand(
+                "Releasing",
+                widgets,
+                opts,
+                "release",
+                (w) => `Released ${w}`,
+                (w) => `Failed to release ${w}`
+            );
+        });
+
     // Test command - run tests for widget(s)
     program
         .command("test")
