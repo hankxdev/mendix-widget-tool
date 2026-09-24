@@ -25,7 +25,7 @@ mx-widget-cli StandaloneWidget \
   --description "Test standalone widget" \
   --author "Test User" \
   --package mendix \
-  --project-path ../../ \
+  --project-path ../../../ \
   --no-install
 
 # Verify structure
@@ -53,7 +53,7 @@ mx-widget-cli init
 
 # Or non-interactive (if prompts are skipped):
 # You'll need to manually answer:
-# - Mendix project path: ../../
+# - Mendix project path: ../../../
 # - Default package namespace: mendix
 
 # Verify structure

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { execSync } from "node:child_process";
 import { Command } from "commander";
@@ -86,7 +86,7 @@ async function promptOptions(cliName?: string): Promise<ScaffoldOptions> {
 
     const projectPath = await input({
         message: "Mendix project path (relative):",
-        default: "../../"
+        default: "../../../"
     });
 
     return {
@@ -181,7 +181,7 @@ async function main(): Promise<void> {
                     author: opts.author,
                     packagePath: opts.package,
                     needsEntityContext: opts.entityContext !== false,
-                    projectPath: opts.projectPath ?? "../../"
+                    projectPath: opts.projectPath ?? "../../../"
                 };
             } else {
                 options = await promptOptions(widgetNameArg);
@@ -236,7 +236,7 @@ async function main(): Promise<void> {
         .command("init")
         .description("Initialize a multi-widget workspace")
         .argument("[directory]", "Directory to initialize (defaults to current directory)")
-        .option("-p, --project-path <path>", "Default Mendix project path", "../../")
+        .option("-p, --project-path <path>", "Default Mendix project path", "../../../")
         .option("-n, --namespace <path>", "Default package namespace", "mendix")
         .action(async (directory, opts) => {
             const targetDir = resolve(process.cwd(), directory || ".");
@@ -367,6 +367,81 @@ async function main(): Promise<void> {
                 console.log();
             } catch (err) {
                 spinner.fail("Failed to add widget");
+                console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+                process.exit(1);
+            }
+        });
+
+    // Remove command - remove a widget from workspace
+    program
+        .command("remove")
+        .alias("rm")
+        .description("Remove a widget from the workspace")
+        .argument("[widget-name]", "Widget name in PascalCase")
+        .option("-y, --yes", "Skip confirmation prompt")
+        .action(async (widgetNameArg, opts) => {
+            const workspaceRoot = findWorkspaceRoot();
+            if (!workspaceRoot) {
+                console.error(chalk.red("\n  Not in a workspace. Run this command from workspace root.\n"));
+                process.exit(1);
+            }
+
+            const config = readWorkspaceConfig(workspaceRoot);
+
+            console.log(chalk.bold("\n  Remove Widget from Workspace\n"));
+
+            const widgetName = widgetNameArg ?? await input({
+                message: "Widget name to remove (PascalCase):",
+                validate: (val) => {
+                    const result = validateWidgetName(val);
+                    return result === true ? true : result;
+                }
+            });
+
+            if (widgetNameArg) {
+                const valid = validateWidgetName(widgetNameArg);
+                if (valid !== true) {
+                    console.error(chalk.red(valid));
+                    process.exit(1);
+                }
+            }
+
+            const widgetDir = join(workspaceRoot, "widgets", widgetName);
+            const isRegistered = Object.prototype.hasOwnProperty.call(config.widgets, widgetName);
+
+            if (!existsSync(widgetDir) && !isRegistered) {
+                console.error(chalk.red(`\n  Widget "${widgetName}" was not found in this workspace.\n`));
+                process.exit(1);
+            }
+
+            const shouldRemove = opts.yes === true || await confirm({
+                message: `Delete widgets/${widgetName} and remove it from mx-workspace.json?`,
+                default: false
+            });
+
+            if (!shouldRemove) {
+                console.log(chalk.yellow("\n  Removal cancelled.\n"));
+                return;
+            }
+
+            const spinner = ora(`Removing ${widgetName} from workspace...`).start();
+
+            try {
+                if (existsSync(widgetDir)) {
+                    rmSync(widgetDir, { recursive: true, force: true });
+                }
+
+                if (isRegistered) {
+                    delete config.widgets[widgetName];
+                    writeWorkspaceConfig(workspaceRoot, config);
+                }
+
+                spinner.succeed("Widget removed");
+                console.log(chalk.green(`\n  Removed ${widgetName} from workspace.\n`));
+                console.log(chalk.dim("  Run npm install in workspace root to refresh package-lock.json if needed."));
+                console.log();
+            } catch (err) {
+                spinner.fail("Failed to remove widget");
                 console.error(chalk.red(err instanceof Error ? err.message : String(err)));
                 process.exit(1);
             }

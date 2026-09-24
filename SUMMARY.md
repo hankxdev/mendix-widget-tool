@@ -264,7 +264,7 @@ node mx-widget-cli/dist/index.js MyWidget \
   --description "My custom widget" \
   --author "Hank" \
   --package mendix \
-  --project-path "../../"
+  --project-path "../../../"
 ```
 
 ### Generated Project Workflow

@@ -123,7 +123,7 @@ export async function initWorkspace(
         options?.mendixProjectPath ??
         (await input({
             message: "Mendix project path (relative):",
-            default: "../../"
+            default: "../../../"
         }));
 
     const defaultPackagePath =
@@ -157,6 +157,7 @@ export async function initWorkspace(
                 dev: "mx-widget-cli dev",
                 build: "mx-widget-cli build",
                 release: "mx-widget-cli release",
+                remove: "mx-widget-cli remove",
                 test: "mx-widget-cli test"
             },
             devDependencies: {

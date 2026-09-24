@@ -31,7 +31,7 @@ npx mx-widget-cli MyWidget \
   --description "My custom widget" \
   --author "Your Name" \
   --package mendix \
-  --project-path ../../
+  --project-path ../../../
 ```
 
 ### Multi-Widget Workspace Mode (Monorepo)
@@ -72,6 +72,9 @@ mx-widget-cli add
 
 # Add a widget (non-interactive)
 mx-widget-cli add MyDataGrid --description "Custom data grid"
+
+# Remove a widget and its files
+mx-widget-cli remove MyDataGrid
 ```
 
 Each widget is scaffolded in `widgets/MyWidgetName/` with the same structure as standalone widgets, but:
@@ -84,6 +87,9 @@ Each widget is scaffolded in `widgets/MyWidgetName/` with the same structure as 
 ```bash
 # List all widgets in workspace
 mx-widget-cli list
+
+# Remove a widget from workspace
+mx-widget-cli remove MyDataGrid
 
 # Build specific widgets
 mx-widget-cli build MyDataGrid MyChart
@@ -175,6 +181,7 @@ my-widgets/                           # Workspace root
 |---------|-------------|
 | `mx-widget-cli init [dir]` | Initialize a multi-widget workspace |
 | `mx-widget-cli add [widget]` | Add a widget to workspace |
+| `mx-widget-cli remove [widget]` | Remove a widget from workspace |
 | `mx-widget-cli list` | List all widgets in workspace |
 | `mx-widget-cli dev <widget>` | Run dev mode for a widget (watch mode) |
 | `mx-widget-cli build [widgets...] [--all]` | Build one, multiple, or all widgets |

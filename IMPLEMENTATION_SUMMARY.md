@@ -196,7 +196,7 @@ These can be added in a future release if needed.
 7. **Backward compatible** - Standalone mode unchanged
 8. **Transparent configs** - No hidden configuration
 
-## Usage Example
+## Usage Exampleg
 
 ```bash
 # Initialize workspace

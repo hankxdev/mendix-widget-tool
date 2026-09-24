@@ -31,7 +31,7 @@ mx-widget-cli add MyButton
 Initializes a new multi-widget workspace.
 
 **Prompts:**
-- Mendix project path (relative, default: "../../")
+- Mendix project path (relative, default: "../../../")
 - Default package namespace (default: "mendix")
 
 **Creates:**
@@ -75,6 +75,21 @@ mx-widget-cli add MyChart
 **Options:**
 - `-d, --description <desc>` - Widget description
 - `-a, --author <author>` - Author name
+
+### `mx-widget-cli remove [widget-name]`
+
+Removes a widget from the workspace.
+
+**Deletes:**
+- `widgets/{WidgetName}/` and all generated widget files
+- The widget entry in `mx-workspace.json`
+
+**Example:**
+```bash
+mx-widget-cli remove MyDataGrid
+# or skip confirmation
+mx-widget-cli remove MyDataGrid --yes
+```
 
 ### `mx-widget-cli [widget-name]` (Standalone Mode)
 
@@ -123,7 +138,7 @@ my-mendix-widgets/
 ```json
 {
     "version": 1,
-    "mendixProjectPath": "../../",
+    "mendixProjectPath": "../../../",
     "defaultPackagePath": "mendix",
     "widgets": {
         "MyDataGrid": {
@@ -148,11 +163,13 @@ my-mendix-widgets/
     ],
     "scripts": {
         "dev": "mx-widget-cli dev",
-        "build": "mx-widget-cli build --all",
-        "test": "mx-widget-cli test --all"
+        "build": "mx-widget-cli build",
+        "release": "mx-widget-cli release",
+        "remove": "mx-widget-cli remove",
+        "test": "mx-widget-cli test"
     },
     "devDependencies": {
-        "mx-widget-cli": "^1.1.0"
+        "mx-widget-cli": "^1.2.5"
     }
 }
 ```
