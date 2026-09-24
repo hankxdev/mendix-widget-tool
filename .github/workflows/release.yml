@@ -3,12 +3,10 @@ name: Release to npm
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-    types: [closed]
 
 jobs:
   release:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -16,6 +14,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -24,6 +24,20 @@ jobs:
           package-manager-cache: false
 
       - run: npm ci
+
+      - name: Bump patch version
+        id: version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          npm version patch --no-git-tag-version
+          VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to $VERSION [skip ci]"
+          git push
 
       - run: npm run build
 
